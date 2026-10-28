@@ -1,0 +1,20 @@
+{
+  "name": "team-chat-task-saas",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Multi-tenant Team Chat + Task Management SaaS with database-per-tenant architecture",
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "dev:api": "pnpm --filter @saas/api dev",
+    "dev:web": "pnpm --filter @saas/web dev",
+    "build": "pnpm --filter @saas/shared build && pnpm --parallel --filter \"./apps/*\" build",
+    "test": "pnpm --filter @saas/api test && pnpm --filter @saas/web test",
+    "test:isolation": "pnpm --filter @saas/api test:isolation",
+    "seed": "pnpm --filter @saas/api seed",
+    "migrate:tenants": "pnpm --filter @saas/api migrate:tenants",
+    "lint": "pnpm --recursive lint"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

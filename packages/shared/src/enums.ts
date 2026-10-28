@@ -1,0 +1,105 @@
+export enum TenantStatus {
+  PROVISIONING = 'provisioning',
+  ACTIVE = 'active',
+  SUSPENDED = 'suspended',
+  DELETED = 'deleted',
+}
+
+export enum UserRole {
+  OWNER = 'OWNER',
+  ADMIN = 'ADMIN',
+  MANAGER = 'MANAGER',
+  MEMBER = 'MEMBER',
+  CUSTOM = 'CUSTOM',
+}
+
+export enum UserStatus {
+  ACTIVE = 'active',
+  INACTIVE = 'inactive',
+  INVITED = 'invited',
+}
+
+export enum ConversationType {
+  DIRECT = 'DIRECT',
+  GROUP = 'GROUP',
+  DEPARTMENT = 'DEPARTMENT',
+  BROADCAST = 'BROADCAST',
+}
+
+export enum MessageType {
+  TEXT = 'TEXT',
+  IMAGE = 'IMAGE',
+  VIDEO = 'VIDEO',
+  DOCUMENT = 'DOCUMENT',
+  VOICE_NOTE = 'VOICE_NOTE',
+  TASK_CARD = 'TASK_CARD',
+  SYSTEM = 'SYSTEM',
+}
+
+export enum MessageDeliveryStatus {
+  SENDING = 'SENDING',
+  SENT = 'SENT',
+  DELIVERED = 'DELIVERED',
+  READ = 'READ',
+}
+
+export enum TaskPriority {
+  LOW = 'LOW',
+  MEDIUM = 'MEDIUM',
+  HIGH = 'HIGH',
+  URGENT = 'URGENT',
+}
+
+export enum TaskStatusCategory {
+  TODO = 'TODO',
+  IN_PROGRESS = 'IN_PROGRESS',
+  ON_HOLD = 'ON_HOLD',
+  UNDER_REVIEW = 'UNDER_REVIEW',
+  DONE = 'DONE',
+  CANCELLED = 'CANCELLED',
+  REOPENED = 'REOPENED',
+}
+
+export enum TaskRelationType {
+  BLOCKS = 'BLOCKS',
+  BLOCKED_BY = 'BLOCKED_BY',
+  RELATED = 'RELATED',
+}
+
+export enum ExtensionRequestStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+}
+
+export enum RecurrenceInterval {
+  DAILY = 'DAILY',
+  WEEKLY = 'WEEKLY',
+  MONTHLY = 'MONTHLY',
+  CUSTOM = 'CUSTOM',
+}
+
+export enum AuditAction {
+  USER_INVITED = 'USER_INVITED',
+  USER_DEACTIVATED = 'USER_DEACTIVATED',
+  USER_ROLE_CHANGED = 'USER_ROLE_CHANGED',
+  DEPARTMENT_CREATED = 'DEPARTMENT_CREATED',
+  BRANCH_CREATED = 'BRANCH_CREATED',
+  SETTINGS_UPDATED = 'SETTINGS_UPDATED',
+  TASK_STATUS_UPDATED = 'TASK_STATUS_UPDATED',
+  TENANT_CREATED = 'TENANT_CREATED',
+  TENANT_SUSPENDED = 'TENANT_SUSPENDED',
+}
+
+export enum NotificationType {
+  TASK_ASSIGNED = 'TASK_ASSIGNED',
+  TASK_STATUS_CHANGED = 'TASK_STATUS_CHANGED',
+  TASK_DUE_SOON = 'TASK_DUE_SOON',
+  TASK_OVERDUE = 'TASK_OVERDUE',
+  TASK_APPROVAL_REQUEST = 'TASK_APPROVAL_REQUEST',
+  TASK_EXTENSION_REQUEST = 'TASK_EXTENSION_REQUEST',
+  TASK_COMMENT = 'TASK_COMMENT',
+  CHAT_MESSAGE = 'CHAT_MESSAGE',
+  CHAT_MENTION = 'CHAT_MENTION',
+  SYSTEM_ANNOUNCEMENT = 'SYSTEM_ANNOUNCEMENT',
+}
