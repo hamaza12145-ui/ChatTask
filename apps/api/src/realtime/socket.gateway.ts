@@ -10,7 +10,11 @@ import {
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { RealtimeService } from './realtime.service';
+import { Message, ConversationMember } from '../entities';
+import { MessageDeliveryStatus } from '@saas/shared';
 
 @WebSocketGateway({
   cors: { origin: '*' },
@@ -24,6 +28,7 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private readonly jwtService: JwtService,
     private readonly realtimeService: RealtimeService,
+    @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
   async handleConnection(socket: Socket) {
@@ -113,7 +118,7 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() socket: Socket,
     @MessageBody() data: { conversationId: string },
   ) {
-    const { userId } = socket.data;
+    const { userId } = socket.data || {};
     if (!userId || !data.conversationId) return;
 
     await this.realtimeService.setTyping(data.conversationId, userId);
@@ -129,7 +134,7 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() socket: Socket,
     @MessageBody() data: { conversationId: string },
   ) {
-    const { userId } = socket.data;
+    const { userId } = socket.data || {};
     if (!userId || !data.conversationId) return;
 
     await this.realtimeService.clearTyping(data.conversationId, userId);
@@ -140,9 +145,82 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
   }
 
+  // Delivery acknowledgement from recipient's device (Double Gray Tick: DELIVERED)
+  @SubscribeMessage('message_delivered')
+  async handleMessageDelivered(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() data: { conversationId: string; messageId: string },
+  ) {
+    const { userId } = socket.data || {};
+    if (!userId || !data.conversationId || !data.messageId) return;
+
+    try {
+      const messageRepo = this.dataSource.getRepository(Message);
+      await messageRepo
+        .createQueryBuilder()
+        .update(Message)
+        .set({ delivery_status: MessageDeliveryStatus.DELIVERED })
+        .where('conversation_id = :conversationId', { conversationId: data.conversationId })
+        .andWhere('id = :messageId', { messageId: data.messageId })
+        .andWhere('delivery_status = :sentStatus', { sentStatus: MessageDeliveryStatus.SENT })
+        .execute();
+
+      // Broadcast delivery receipt to conversation room
+      this.server.to(`conv:${data.conversationId}`).emit('message_delivered', {
+        conversationId: data.conversationId,
+        messageId: data.messageId,
+        userId,
+      });
+    } catch (err: any) {
+      this.logger.warn(`Error updating delivery status: ${err.message}`);
+    }
+  }
+
+  // Read receipt acknowledgment from recipient's device (Double Blue Tick: READ)
+  @SubscribeMessage('mark_read')
+  async handleMarkRead(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() data: { conversationId: string; messageId: string },
+  ) {
+    const { userId } = socket.data || {};
+    if (!userId || !data.conversationId || !data.messageId) return;
+
+    try {
+      const memberRepo = this.dataSource.getRepository(ConversationMember);
+      const messageRepo = this.dataSource.getRepository(Message);
+
+      await memberRepo.update(
+        { conversation_id: data.conversationId, user_id: userId },
+        { last_read_message_id: data.messageId },
+      );
+
+      await messageRepo
+        .createQueryBuilder()
+        .update(Message)
+        .set({ delivery_status: MessageDeliveryStatus.READ })
+        .where('conversation_id = :conversationId', { conversationId: data.conversationId })
+        .andWhere('sender_id != :userId', { userId })
+        .andWhere('id <= :messageId', { messageId: data.messageId })
+        .andWhere('delivery_status != :readStatus', { readStatus: MessageDeliveryStatus.READ })
+        .execute();
+
+      this.broadcastReadReceipt(data.conversationId, userId, data.messageId);
+    } catch (err: any) {
+      this.logger.warn(`Error handling mark_read: ${err.message}`);
+    }
+  }
+
   // Broadcast helper called by controllers & services
   broadcastNewMessage(conversationId: string, message: any) {
     this.server.to(`conv:${conversationId}`).emit('new_message', message);
+  }
+
+  broadcastMessageDelivered(conversationId: string, messageId: string, userId: string) {
+    this.server.to(`conv:${conversationId}`).emit('message_delivered', {
+      conversationId,
+      messageId,
+      userId,
+    });
   }
 
   broadcastMessageEdited(conversationId: string, message: any) {

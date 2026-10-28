@@ -375,12 +375,30 @@ export const ChatView: React.FC<ChatViewProps> = ({ onCreateTaskFromMsg, onOpenQ
                       )}
 
                       <div className="flex justify-between items-center text-xs text-gray-500 dark:text-gray-400">
-                        <p className="truncate pr-2 rtl:pr-0 rtl:pl-2">
-                          {conv.last_message
-                            ? (conv.last_message.type === 'TASK_CARD' ? 'ðŸ“‹ ' : '') +
-                              conv.last_message.content
-                            : 'No messages yet'}
-                        </p>
+                        <div className="flex items-center space-x-1 rtl:space-x-reverse min-w-0 pr-2 rtl:pr-0 rtl:pl-2">
+                          {conv.last_message && conv.last_message.sender_id === user?.id && (
+                            <span className="shrink-0 inline-flex items-center">
+                              {conv.last_message.delivery_status === 'SENDING' && (
+                                <Clock className="w-3 h-3 text-gray-400 animate-spin" />
+                              )}
+                              {conv.last_message.delivery_status === 'SENT' && (
+                                <Check className="w-3 h-3 text-gray-400" />
+                              )}
+                              {conv.last_message.delivery_status === 'DELIVERED' && (
+                                <CheckCheck className="w-3 h-3 text-gray-400" />
+                              )}
+                              {conv.last_message.delivery_status === 'READ' && (
+                                <CheckCheck className="w-3 h-3 text-sky-500 dark:text-sky-400" />
+                              )}
+                            </span>
+                          )}
+                          <p className="truncate">
+                            {conv.last_message
+                              ? (conv.last_message.type === 'TASK_CARD' ? '📋 ' : '') +
+                                conv.last_message.content
+                              : 'No messages yet'}
+                          </p>
+                        </div>
                         {conv.unread_count && conv.unread_count > 0 ? (
                           <span className="bg-emerald-600 text-white rounded-full text-[10px] font-bold px-1.5 py-0.5 min-w-4 text-center shrink-0">
                             {conv.unread_count}
@@ -696,15 +714,22 @@ export const ChatView: React.FC<ChatViewProps> = ({ onCreateTaskFromMsg, onOpenQ
                       </p>
                     )}
 
-                    {/* Timestamp & Read Receipt */}
+                    {/* Timestamp & Delivery Status Ticks */}
                     <div className="flex items-center justify-end space-x-1 rtl:space-x-reverse mt-1 text-[10px] text-gray-400">
                       <span>{format(new Date(msg.created_at), 'p')}</span>
                       {isMine && (
-                        <span>
-                          {msg.delivery_status === 'READ' ? (
-                            <CheckCheck className="w-3.5 h-3.5 text-blue-500" />
-                          ) : (
-                            <Check className="w-3.5 h-3.5 text-gray-400" />
+                        <span className="inline-flex items-center">
+                          {msg.delivery_status === 'SENDING' && (
+                            <span title="Sending..."><Clock className="w-3.5 h-3.5 text-gray-400 animate-spin" /></span>
+                          )}
+                          {msg.delivery_status === 'SENT' && (
+                            <span title="Sent to server"><Check className="w-3.5 h-3.5 text-gray-400" /></span>
+                          )}
+                          {msg.delivery_status === 'DELIVERED' && (
+                            <span title="Delivered to device"><CheckCheck className="w-3.5 h-3.5 text-gray-400" /></span>
+                          )}
+                          {msg.delivery_status === 'READ' && (
+                            <span title="Read by recipient"><CheckCheck className="w-3.5 h-3.5 text-sky-500 dark:text-sky-400" /></span>
                           )}
                         </span>
                       )}

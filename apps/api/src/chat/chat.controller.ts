@@ -46,9 +46,10 @@ export class ChatController {
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
     @Query('direction') direction?: 'before' | 'after',
+    @CurrentUser() user?: CurrentUserPayload,
   ) {
     const numLimit = limit ? parseInt(limit, 10) : 30;
-    return this.chatService.getMessages(conversationId, cursor, numLimit, direction);
+    return this.chatService.getMessages(conversationId, cursor, numLimit, direction, user?.id);
   }
 
   @Post('messages')
@@ -80,6 +81,17 @@ export class ChatController {
   ) {
     const isEveryone = forEveryone === 'true';
     await this.chatService.deleteMessage(messageId, user.id, isEveryone);
+    return { success: true };
+  }
+
+  @Post('conversations/:id/delivered')
+  async markDelivered(
+    @Param('id') conversationId: string,
+    @Body('messageId') messageId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    await this.chatService.markAsDelivered(conversationId, messageId, user.id);
+    this.socketGateway.broadcastMessageDelivered(conversationId, messageId, user.id);
     return { success: true };
   }
 

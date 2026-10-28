@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { api } from '../api/client';
 import { useSocketStore } from './socket.store';
+import { useAuthStore } from './auth.store';
 import { uuidv7 } from 'uuidv7';
 
 export interface ChatMessage {
@@ -12,7 +13,7 @@ export interface ChatMessage {
   attachments?: any[];
   parent_message_id?: string | null;
   task_id?: string | null;
-  delivery_status: string;
+  delivery_status: 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | string;
   is_edited: boolean;
   is_deleted: boolean;
   created_at: string;
@@ -61,6 +62,7 @@ interface ChatState {
   markConversationAsRead: (conversationId: string, messageId: string) => Promise<void>;
 
   handleIncomingMessage: (message: ChatMessage) => void;
+  handleMessageDelivered: (conversationId: string, messageId: string) => void;
   handleMessageEdited: (message: ChatMessage) => void;
   handleMessageDeleted: (messageId: string) => void;
   handleReadReceipt: (conversationId: string, userId: string, messageId: string) => void;
@@ -126,10 +128,45 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const active = get().activeConversation;
     if (!active || !content.trim()) return;
 
+    const currentUser = useAuthStore.getState().user;
     const replying = get().replyingTo;
     const clientGeneratedId = uuidv7();
 
+    // 1. Optimistic Message Addition (State: SENDING - clock icon)
+    const optimisticMsg: ChatMessage = {
+      id: clientGeneratedId,
+      conversation_id: active.id,
+      sender_id: currentUser?.id || '',
+      type,
+      content: content.trim(),
+      attachments,
+      task_id: taskId,
+      parent_message_id: replying?.id || null,
+      delivery_status: 'SENDING',
+      is_edited: false,
+      is_deleted: false,
+      created_at: new Date().toISOString(),
+      sender: currentUser
+        ? {
+            id: currentUser.id,
+            name: currentUser.name,
+            avatar_url: currentUser.avatar_url,
+            designation: currentUser.designation,
+            department: currentUser.department,
+          }
+        : undefined,
+    };
+
+    set((state) => ({
+      messages: [...state.messages, optimisticMsg],
+      replyingTo: null,
+      conversations: state.conversations.map((c) =>
+        c.id === active.id ? { ...c, last_message: optimisticMsg } : c,
+      ),
+    }));
+
     try {
+      // 2. Server Persistence (State becomes: SENT - Single gray tick)
       const newMsg = await api.post<ChatMessage>('/chat/messages', {
         id: clientGeneratedId,
         conversation_id: active.id,
@@ -140,19 +177,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
         parent_message_id: replying?.id || null,
       });
 
+      // Replace optimistic message with confirmed server message
       set((state) => ({
-        messages: [...state.messages.filter((m) => m.id !== clientGeneratedId), newMsg],
-        replyingTo: null,
-      }));
-
-      // Update conversation snippet
-      set((state) => ({
+        messages: state.messages.map((m) => (m.id === clientGeneratedId ? newMsg : m)),
         conversations: state.conversations.map((c) =>
           c.id === active.id ? { ...c, last_message: newMsg } : c,
         ),
       }));
     } catch (err) {
       console.error('Send message failed:', err);
+      // If failed, mark or keep visible with warning
+      set((state) => ({
+        messages: state.messages.filter((m) => m.id !== clientGeneratedId),
+      }));
     }
   },
 
@@ -178,6 +215,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   markConversationAsRead: async (conversationId: string, messageId: string) => {
     try {
+      // Send both via REST and Socket for maximum reliability
+      useSocketStore.getState().sendReadReceipt(conversationId, messageId);
       await api.post(`/chat/conversations/${conversationId}/read`, { messageId });
       set((state) => ({
         conversations: state.conversations.map((c) =>
@@ -189,11 +228,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   handleIncomingMessage: (msg) => {
     const active = get().activeConversation;
+    const currentUserId = useAuthStore.getState().user?.id;
+
+    // Send delivery acknowledgment back to server if message is from someone else
+    if (msg.sender_id !== currentUserId) {
+      useSocketStore.getState().sendDeliveryReceipt(msg.conversation_id, msg.id);
+    }
+
+    // If msg belongs to currently active conversation
     if (active && active.id === msg.conversation_id) {
       set((state) => ({
-        messages: state.messages.some((m) => m.id === msg.id) ? state.messages : [...state.messages, msg],
+        messages: state.messages.some((m) => m.id === msg.id)
+          ? state.messages.map((m) => (m.id === msg.id ? msg : m))
+          : [...state.messages, msg],
       }));
-      get().markConversationAsRead(active.id, msg.id);
+
+      // If user is currently viewing this conversation, mark as read immediately
+      if (msg.sender_id !== currentUserId) {
+        get().markConversationAsRead(active.id, msg.id);
+      }
     }
 
     set((state) => ({
@@ -211,9 +264,44 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
   },
 
+  // Recipient's device acknowledged receipt -> Double Gray Tick
+  handleMessageDelivered: (conversationId, messageId) => {
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.id === messageId && m.delivery_status !== 'READ'
+          ? { ...m, delivery_status: 'DELIVERED' }
+          : m,
+      ),
+      conversations: state.conversations.map((c) =>
+        c.id === conversationId && c.last_message?.id === messageId && c.last_message.delivery_status !== 'READ'
+          ? { ...c, last_message: { ...c.last_message, delivery_status: 'DELIVERED' } }
+          : c,
+      ),
+    }));
+  },
+
+  // Recipient opened conversation -> Double Blue Tick
+  handleReadReceipt: (conversationId, userId, messageId) => {
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.id === messageId || (m.conversation_id === conversationId && m.id <= messageId)
+          ? { ...m, delivery_status: 'READ' }
+          : m,
+      ),
+      conversations: state.conversations.map((c) =>
+        c.id === conversationId && c.last_message && (c.last_message.id === messageId || c.last_message.id <= messageId)
+          ? { ...c, last_message: { ...c.last_message, delivery_status: 'READ' } }
+          : c,
+      ),
+    }));
+  },
+
   handleMessageEdited: (edited) => {
     set((state) => ({
       messages: state.messages.map((m) => (m.id === edited.id ? edited : m)),
+      conversations: state.conversations.map((c) =>
+        c.last_message?.id === edited.id ? { ...c, last_message: edited } : c,
+      ),
     }));
   },
 
@@ -221,14 +309,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => ({
       messages: state.messages.map((m) =>
         m.id === messageId ? { ...m, is_deleted: true, content: 'This message was deleted' } : m,
-      ),
-    }));
-  },
-
-  handleReadReceipt: (conversationId, userId, messageId) => {
-    set((state) => ({
-      messages: state.messages.map((m) =>
-        m.id === messageId ? { ...m, delivery_status: 'READ' } : m,
       ),
     }));
   },

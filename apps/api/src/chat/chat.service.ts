@@ -169,6 +169,7 @@ export class ChatService {
     cursor?: string,
     limit: number = 30,
     direction: 'before' | 'after' = 'before',
+    userId?: string,
   ): Promise<{ messages: Message[]; nextCursor?: string; prevCursor?: string }> {
     const ds = this.ds;
     const messageRepo = ds.getRepository(Message);
@@ -198,6 +199,19 @@ export class ChatService {
 
     if (direction === 'before') {
       messages = messages.reverse(); // Return in chronological order
+    }
+
+    // Mark delivered for any message fetched by recipient that was in SENT state
+    if (messages.length > 0 && userId) {
+      const messageRepo = ds.getRepository(Message);
+      await messageRepo
+        .createQueryBuilder()
+        .update(Message)
+        .set({ delivery_status: MessageDeliveryStatus.DELIVERED })
+        .where('conversation_id = :conversationId', { conversationId })
+        .andWhere('sender_id != :userId', { userId })
+        .andWhere('delivery_status = :sentStatus', { sentStatus: MessageDeliveryStatus.SENT })
+        .execute();
     }
 
     const nextCursor = messages.length > 0 ? messages[0].id : undefined;
@@ -314,14 +328,39 @@ export class ChatService {
     }
   }
 
+  async markAsDelivered(conversationId: string, messageId: string, userId: string): Promise<void> {
+    const ds = this.ds;
+    const messageRepo = ds.getRepository(Message);
+
+    await messageRepo
+      .createQueryBuilder()
+      .update(Message)
+      .set({ delivery_status: MessageDeliveryStatus.DELIVERED })
+      .where('conversation_id = :conversationId', { conversationId })
+      .andWhere('id = :messageId', { messageId })
+      .andWhere('delivery_status = :sentStatus', { sentStatus: MessageDeliveryStatus.SENT })
+      .execute();
+  }
+
   async markAsRead(conversationId: string, messageId: string, userId: string): Promise<void> {
     const ds = this.ds;
     const memberRepo = ds.getRepository(ConversationMember);
+    const messageRepo = ds.getRepository(Message);
 
     await memberRepo.update(
       { conversation_id: conversationId, user_id: userId },
       { last_read_message_id: messageId },
     );
+
+    await messageRepo
+      .createQueryBuilder()
+      .update(Message)
+      .set({ delivery_status: MessageDeliveryStatus.READ })
+      .where('conversation_id = :conversationId', { conversationId })
+      .andWhere('sender_id != :userId', { userId })
+      .andWhere('id <= :messageId', { messageId })
+      .andWhere('delivery_status != :readStatus', { readStatus: MessageDeliveryStatus.READ })
+      .execute();
   }
 
   async searchMessages(query: string, userId: string): Promise<Message[]> {

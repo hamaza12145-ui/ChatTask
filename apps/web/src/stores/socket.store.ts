@@ -15,6 +15,8 @@ interface SocketState {
   joinConversation: (conversationId: string) => void;
   leaveConversation: (conversationId: string) => void;
   sendTyping: (conversationId: string, isTyping: boolean) => void;
+  sendDeliveryReceipt: (conversationId: string, messageId: string) => void;
+  sendReadReceipt: (conversationId: string, messageId: string) => void;
 }
 
 export const useSocketStore = create<SocketState>((set, get) => ({
@@ -32,7 +34,8 @@ export const useSocketStore = create<SocketState>((set, get) => ({
       get().socket?.disconnect();
     }
 
-    const socket = io('http://localhost:4000', {
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:4000';
+    const socket = io(socketUrl, {
       auth: { token },
       transports: ['websocket', 'polling'],
     });
@@ -68,16 +71,22 @@ export const useSocketStore = create<SocketState>((set, get) => ({
       useChatStore.getState().handleIncomingMessage(message);
     });
 
+    // Real-time delivery receipt (Double Gray Tick: DELIVERED)
+    socket.on('message_delivered', (data: { conversationId: string; messageId: string; userId: string }) => {
+      useChatStore.getState().handleMessageDelivered(data.conversationId, data.messageId);
+    });
+
+    // Real-time read receipt (Double Blue Tick: READ)
+    socket.on('read_receipt', (data: { conversationId: string; userId: string; messageId: string }) => {
+      useChatStore.getState().handleReadReceipt(data.conversationId, data.userId, data.messageId);
+    });
+
     socket.on('message_edited', (message: any) => {
       useChatStore.getState().handleMessageEdited(message);
     });
 
     socket.on('message_deleted', (data: { messageId: string }) => {
       useChatStore.getState().handleMessageDeleted(data.messageId);
-    });
-
-    socket.on('read_receipt', (data: { conversationId: string; userId: string; messageId: string }) => {
-      useChatStore.getState().handleReadReceipt(data.conversationId, data.userId, data.messageId);
     });
 
     // Real-time task update
@@ -111,5 +120,13 @@ export const useSocketStore = create<SocketState>((set, get) => ({
     } else {
       get().socket?.emit('typing_stop', { conversationId });
     }
+  },
+
+  sendDeliveryReceipt: (conversationId: string, messageId: string) => {
+    get().socket?.emit('message_delivered', { conversationId, messageId });
+  },
+
+  sendReadReceipt: (conversationId: string, messageId: string) => {
+    get().socket?.emit('mark_read', { conversationId, messageId });
   },
 }));
