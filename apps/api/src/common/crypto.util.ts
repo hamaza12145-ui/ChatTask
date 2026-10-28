@@ -6,7 +6,7 @@ const TAG_LENGTH = 16;
 
 export class CryptoUtil {
   private static getKey(secretKey: string): Buffer {
-    return crypto.scryptSync(secretKey, 'salt_saas_tenant_vault', 32);
+    return crypto.scryptSync(secretKey, 'salt_taskcom_app_vault', 32);
   }
 
   static encrypt(plainText: string, secretKey: string): string {

@@ -33,5 +33,3 @@ export class JwtAuthGuard implements CanActivate {
   }
 }
 
-// Compatibility alias
-export const JwtTenantGuard = JwtAuthGuard;

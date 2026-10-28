@@ -577,7 +577,7 @@ export class TasksService {
     return item;
   }
 
-  // Statuses management (Tenant Admin)
+  // Statuses management (Admin)
   async getTaskStatuses(): Promise<TaskStatus[]> {
     const ds = this.ds;
     return ds.getRepository(TaskStatus).find({ order: { order: 'ASC' } });

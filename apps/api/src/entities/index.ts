@@ -72,5 +72,3 @@ export const ENTITIES = [
   AuditLog,
 ];
 
-// Compatibility alias
-export const TENANT_ENTITIES = ENTITIES;

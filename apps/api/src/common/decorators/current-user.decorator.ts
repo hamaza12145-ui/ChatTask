@@ -5,7 +5,6 @@ export interface CurrentUserPayload {
   id: string;
   email: string;
   role: string;
-  tenant_id: string;
   name?: string;
   department_id?: string;
 }
