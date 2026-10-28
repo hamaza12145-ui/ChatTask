@@ -1,15 +1,12 @@
 import { AuthService } from './auth.service';
 import { JwtService } from '@nestjs/jwt';
-import { ClsService } from 'nestjs-cls';
-import { TenantConnectionService } from '../tenancy/tenant-connection.service';
 import { UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 
 describe('AuthService', () => {
   let service: AuthService;
   let mockJwtService: Partial<JwtService>;
-  let mockClsService: Partial<ClsService>;
-  let mockTenantConnectionService: Partial<TenantConnectionService>;
+  let mockDataSource: any;
   let mockUserRepo: any;
   let mockRefreshRepo: any;
 
@@ -39,12 +36,10 @@ describe('AuthService', () => {
       save: jest.fn().mockResolvedValue({}),
     };
 
-    mockTenantConnectionService = {
-      getDataSourceForCurrentRequest: jest.fn().mockResolvedValue({
-        getRepository: jest.fn().mockImplementation((entity) => {
-          if (entity.name === 'User') return mockUserRepo;
-          return mockRefreshRepo;
-        }),
+    mockDataSource = {
+      getRepository: jest.fn().mockImplementation((entity) => {
+        if (entity.name === 'User') return mockUserRepo;
+        return mockRefreshRepo;
       }),
     };
 
@@ -52,18 +47,9 @@ describe('AuthService', () => {
       sign: jest.fn().mockReturnValue('mock-jwt-token'),
     };
 
-    mockClsService = {
-      get: jest.fn().mockReturnValue({
-        id: 'tenant-123',
-        name: 'Acme Corp',
-        subdomain: 'acme',
-      }),
-    };
-
     service = new AuthService(
       mockJwtService as JwtService,
-      mockClsService as ClsService,
-      mockTenantConnectionService as TenantConnectionService,
+      mockDataSource,
     );
   });
 
@@ -76,7 +62,6 @@ describe('AuthService', () => {
     expect(res).toBeDefined();
     expect(res.access_token).toBe('mock-jwt-token');
     expect(res.user.email).toBe('alice@acme.com');
-    expect(res.tenant.subdomain).toBe('acme');
   });
 
   it('should throw UnauthorizedException on wrong password', async () => {

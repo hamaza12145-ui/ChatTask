@@ -24,8 +24,8 @@ export const useSocketStore = create<SocketState>((set, get) => ({
   typingUsers: {},
 
   connect: () => {
-    const { token, tenant } = useAuthStore.getState();
-    if (!token || !tenant) return;
+    const { token } = useAuthStore.getState();
+    if (!token) return;
 
     // Disconnect existing if any
     if (get().socket) {
@@ -34,7 +34,6 @@ export const useSocketStore = create<SocketState>((set, get) => ({
 
     const socket = io('http://localhost:4000', {
       auth: { token },
-      query: { subdomain: tenant.subdomain },
       transports: ['websocket', 'polling'],
     });
 

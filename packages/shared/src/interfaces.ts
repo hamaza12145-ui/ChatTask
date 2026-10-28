@@ -1,5 +1,4 @@
 import {
-  TenantStatus,
   UserRole,
   UserStatus,
   ConversationType,
@@ -12,35 +11,6 @@ import {
   RecurrenceInterval,
   NotificationType,
 } from './enums';
-
-export interface ITenant {
-  id: string;
-  name: string;
-  subdomain: string;
-  db_name: string;
-  db_host: string;
-  db_user: string;
-  plan: string;
-  status: TenantStatus;
-  schema_version: number;
-  storage_used_bytes: number;
-  created_at: Date;
-}
-
-export interface ISuperAdmin {
-  id: string;
-  email: string;
-  name: string;
-  created_at: Date;
-}
-
-export interface IPlan {
-  id: string;
-  name: string;
-  max_users: number;
-  storage_limit_bytes: number;
-  features: Record<string, any>;
-}
 
 export interface IDepartment {
   id: string;
@@ -148,6 +118,8 @@ export interface IChecklistItem {
   task_id: string;
   title: string;
   is_completed: boolean;
+  completed_by?: string | null;
+  completed_at?: Date | null;
   order: number;
 }
 
@@ -156,9 +128,9 @@ export interface ITaskComment {
   task_id: string;
   user_id: string;
   content: string;
-  attachments?: IMessageAttachment[];
-  created_at: Date;
+  attachments?: any[];
   user?: IUser;
+  created_at: Date;
 }
 
 export interface ITaskActivity {
@@ -167,8 +139,8 @@ export interface ITaskActivity {
   actor_id: string;
   action: string;
   field_name?: string | null;
-  old_value?: string | null;
-  new_value?: string | null;
+  old_value?: any;
+  new_value?: any;
   created_at: Date;
   actor?: IUser;
 }
@@ -176,27 +148,35 @@ export interface ITaskActivity {
 export interface ITaskExtensionRequest {
   id: string;
   task_id: string;
-  requested_by: string;
-  requested_date: Date;
+  requester_id: string;
+  requested_due_date: Date;
   reason: string;
   status: ExtensionRequestStatus;
   reviewed_by?: string | null;
-  review_note?: string | null;
+  reviewed_at?: Date | null;
+  reviewer_notes?: string | null;
   created_at: Date;
   requester?: IUser;
-  reviewer?: IUser;
 }
 
 export interface ITaskLinkedTask {
   id: string;
   task_id: string;
-  linked_task_id: string;
+  target_task_id: string;
   relation_type: TaskRelationType;
-  linked_task?: ITask;
+  target_task?: ITask;
+}
+
+export interface ITaskAssignee {
+  id: string;
+  task_id: string;
+  user_id: string;
+  user?: IUser;
+  assigned_at: Date;
 }
 
 export interface ITask {
-  id: string;
+  id: string; // UUIDv7
   title: string;
   description?: string | null;
   creator_id: string;
@@ -209,26 +189,26 @@ export interface ITask {
   start_date?: Date | null;
   due_date?: Date | null;
   estimated_hours?: number | null;
+  actual_hours?: number | null;
   requires_approval: boolean;
   proof_required: boolean;
-  proof_attachments?: IMessageAttachment[];
-  proof_notes?: string | null;
+  proof_data?: any;
+  is_approved: boolean;
+  labels?: string[];
   recurrence_rule?: string | null;
-  labels: string[];
   created_at: Date;
   updated_at: Date;
-
   creator?: IUser;
   status?: ITaskStatus;
   department?: IDepartment;
-  assignees?: IUser[];
-  watchers?: IUser[];
-  checklist?: IChecklistItem[];
-  subtasks?: ITask[];
+  assignees?: ITaskAssignee[];
+  watchers?: any[];
+  checklists?: IChecklistItem[];
   comments?: ITaskComment[];
   activities?: ITaskActivity[];
   extension_requests?: ITaskExtensionRequest[];
   linked_tasks?: ITaskLinkedTask[];
+  subtasks?: ITask[];
 }
 
 export interface INotification {
@@ -237,34 +217,7 @@ export interface INotification {
   type: NotificationType;
   title: string;
   body: string;
-  data?: {
-    task_id?: string;
-    conversation_id?: string;
-    message_id?: string;
-    [key: string]: any;
-  };
+  data?: Record<string, any>;
   is_read: boolean;
-  created_at: Date;
-}
-
-export interface INotificationPreferences {
-  mute_chats: boolean;
-  mute_tasks: boolean;
-  quiet_hours_enabled: boolean;
-  quiet_hours_start?: string; // HH:mm
-  quiet_hours_end?: string; // HH:mm
-  email_notifications: boolean;
-  push_notifications: boolean;
-}
-
-export interface IAuditLog {
-  id: string;
-  user_id?: string | null;
-  action: string;
-  entity_type: string;
-  entity_id: string;
-  details?: Record<string, any>;
-  ip_address?: string;
-  user_agent?: string;
   created_at: Date;
 }

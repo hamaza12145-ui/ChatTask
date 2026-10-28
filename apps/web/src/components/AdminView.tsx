@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 
 export const AdminView: React.FC = () => {
-  const { user, locale, tenant } = useAuthStore();
+  const { user, locale } = useAuthStore();
   const t = translations[locale];
 
   const [users, setUsers] = useState<any[]>([]);

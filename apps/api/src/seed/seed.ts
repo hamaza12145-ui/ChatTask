@@ -5,13 +5,10 @@ import { DataSource } from 'typeorm';
 import { Client } from 'pg';
 import * as bcrypt from 'bcryptjs';
 import { uuidv7 } from 'uuidv7';
-import { Tenant } from '../control/entities/tenant.entity';
-import { SuperAdmin } from '../control/entities/super-admin.entity';
-import { Plan } from '../control/entities/plan.entity';
-import { TenantMigrationLog } from '../control/entities/tenant-migration-log.entity';
 import {
-  TENANT_ENTITIES,
+  ENTITIES,
   User,
+  Role,
   Department,
   Branch,
   Designation,
@@ -24,10 +21,8 @@ import {
   TaskChecklist,
   TaskComment,
   TaskActivity,
-} from '../tenant-entities';
-import { CryptoUtil } from '../common/crypto.util';
+} from '../entities';
 import {
-  TenantStatus,
   UserRole,
   UserStatus,
   ConversationType,
@@ -38,160 +33,67 @@ import {
 } from '@saas/shared';
 
 async function seed() {
-  console.log('=== SEEDING MULTI-TENANT SYSTEM (PAKISTANI EMPLOYEES & DEPARTMENTS) ===');
+  console.log('=== SEEDING GENERAL-PURPOSE APPLICATION (PAKISTANI EMPLOYEES & DEPARTMENTS) ===');
 
   const host = process.env.DB_HOST || '127.0.0.1';
   const port = parseInt(process.env.DB_PORT || '5432', 10);
   const user = process.env.DB_USER || 'postgres';
-  const password = process.env.DB_PASSWORD || '';
-  const controlDbName = process.env.DB_CONTROL_NAME || 'taskcom';
-  const tenantDbName = process.env.DB_NAME || controlDbName;
-  const secretKey = process.env.DB_ENCRYPTION_KEY || 'supersecret32characterkeyforaes!';
+  const password = process.env.DB_PASSWORD || 'root';
+  const dbName = process.env.DB_NAME || 'taskcom';
 
-  // 1. Ensure Control DB exists
+  // 1. Ensure Database exists
   const pgClient = new Client({ host, port, user, password, database: 'postgres' });
   await pgClient.connect();
-  const dbCheck = await pgClient.query('SELECT 1 FROM pg_database WHERE datname = $1', [controlDbName]);
+  const dbCheck = await pgClient.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName]);
   if (dbCheck.rowCount === 0) {
-    console.log(`Creating control database ${controlDbName}...`);
-    await pgClient.query(`CREATE DATABASE "${controlDbName}"`);
+    console.log(`Creating database ${dbName}...`);
+    await pgClient.query(`CREATE DATABASE "${dbName}"`);
   }
   await pgClient.end();
 
-  // 2. Initialize Control DB connection
-  const controlDS = new DataSource({
-    type: 'postgres',
-    host,
-    port,
-    username: user,
-    password,
-    database: controlDbName,
-    entities: [Tenant, SuperAdmin, Plan, TenantMigrationLog],
-    synchronize: true,
-  });
-  await controlDS.initialize();
-  console.log('Connected to Control DB.');
-
-  const superAdminRepo = controlDS.getRepository(SuperAdmin);
-  const planRepo = controlDS.getRepository(Plan);
-  const tenantRepo = controlDS.getRepository(Tenant);
-
-  // Seed Plans
-  await planRepo.save([
-    planRepo.create({ id: 'free', name: 'Free Starter', max_users: 10, storage_limit_bytes: 5368709120 }),
-    planRepo.create({ id: 'pro', name: 'Professional', max_users: 50, storage_limit_bytes: 53687091200 }),
-    planRepo.create({ id: 'enterprise', name: 'Enterprise', max_users: 500, storage_limit_bytes: 536870912000 }),
-  ]);
-
-  // Seed Super Admin
-  const existingSuperAdmin = await superAdminRepo.findOne({ where: { email: 'superadmin@saas.com' } });
-  if (!existingSuperAdmin) {
-    const hash = await bcrypt.hash('SuperAdmin123!', 10);
-    await superAdminRepo.save(
-      superAdminRepo.create({
-        email: 'superadmin@saas.com',
-        name: 'Master Super Admin',
-        password_hash: hash,
-      }),
-    );
-    console.log('Created Super Admin: superadmin@saas.com / SuperAdmin123!');
-  }
-
-  // 3. Provision / Connect to Primary Tenant (acme & taskcom) in database
-  const subdomain = 'acme';
-  const dbName = tenantDbName;
-  const rootClient = new Client({ host, port, user, password, database: 'postgres' });
-  await rootClient.connect();
-  const tCheck = await rootClient.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName]);
-  if (tCheck.rowCount === 0) {
-    await rootClient.query(`CREATE DATABASE "${dbName}"`);
-  }
-  await rootClient.end();
-
-  const encryptedPass = CryptoUtil.encrypt(password, secretKey);
-  
-  // Seed or update 'acme'
-  let tenantRecord = await tenantRepo.findOne({ where: { subdomain } });
-  if (!tenantRecord) {
-    tenantRecord = await tenantRepo.save(
-      tenantRepo.create({
-        name: 'TechPak Enterprises (Pvt) Ltd',
-        subdomain: subdomain,
-        db_name: dbName,
-        db_host: host,
-        db_port: port,
-        db_user: user,
-        db_password_encrypted: encryptedPass,
-        plan: 'enterprise',
-        status: TenantStatus.ACTIVE,
-        schema_version: 1,
-      }),
-    );
-  } else {
-    tenantRecord.db_name = dbName;
-    tenantRecord.db_port = port;
-    tenantRecord.db_host = host;
-    tenantRecord.db_user = user;
-    tenantRecord.db_password_encrypted = encryptedPass;
-    await tenantRepo.save(tenantRecord);
-  }
-
-  // Seed or update 'taskcom'
-  let taskcomTenant = await tenantRepo.findOne({ where: { subdomain: 'taskcom' } });
-  if (!taskcomTenant) {
-    await tenantRepo.save(
-      tenantRepo.create({
-        name: 'TaskCom Enterprise Workspace',
-        subdomain: 'taskcom',
-        db_name: dbName,
-        db_host: host,
-        db_port: port,
-        db_user: user,
-        db_password_encrypted: encryptedPass,
-        plan: 'enterprise',
-        status: TenantStatus.ACTIVE,
-        schema_version: 1,
-      }),
-    );
-  } else {
-    taskcomTenant.db_name = dbName;
-    taskcomTenant.db_port = port;
-    taskcomTenant.db_host = host;
-    taskcomTenant.db_user = user;
-    taskcomTenant.db_password_encrypted = encryptedPass;
-    await tenantRepo.save(taskcomTenant);
-  }
-
-  // Connect to primary tenant DB (taskcom)
-  const tenantDS = new DataSource({
+  // 2. Initialize DataSource directly with all entities
+  const appDS = new DataSource({
     type: 'postgres',
     host,
     port,
     username: user,
     password,
     database: dbName,
-    entities: TENANT_ENTITIES,
+    entities: ENTITIES,
     synchronize: true,
     logging: false,
   });
-  await tenantDS.initialize();
-  console.log(`Connected to Tenant DB: ${dbName}`);
+  await appDS.initialize();
+  console.log(`Connected to Database: ${dbName}`);
 
-  const deptRepo = tenantDS.getRepository(Department);
-  const branchRepo = tenantDS.getRepository(Branch);
-  const desigRepo = tenantDS.getRepository(Designation);
-  const statusRepo = tenantDS.getRepository(TaskStatus);
-  const userRepo = tenantDS.getRepository(User);
-  const convRepo = tenantDS.getRepository(Conversation);
-  const memberRepo = tenantDS.getRepository(ConversationMember);
-  const messageRepo = tenantDS.getRepository(Message);
-  const taskRepo = tenantDS.getRepository(Task);
-  const assigneeRepo = tenantDS.getRepository(TaskAssignee);
-  const checklistRepo = tenantDS.getRepository(TaskChecklist);
-  const commentRepo = tenantDS.getRepository(TaskComment);
-  const activityRepo = tenantDS.getRepository(TaskActivity);
+  const roleRepo = appDS.getRepository(Role);
+  const deptRepo = appDS.getRepository(Department);
+  const branchRepo = appDS.getRepository(Branch);
+  const desigRepo = appDS.getRepository(Designation);
+  const statusRepo = appDS.getRepository(TaskStatus);
+  const userRepo = appDS.getRepository(User);
+  const convRepo = appDS.getRepository(Conversation);
+  const memberRepo = appDS.getRepository(ConversationMember);
+  const messageRepo = appDS.getRepository(Message);
+  const taskRepo = appDS.getRepository(Task);
+  const assigneeRepo = appDS.getRepository(TaskAssignee);
+  const checklistRepo = appDS.getRepository(TaskChecklist);
 
-  // 1. Seed Task Statuses
+  // 1. Seed Roles
+  const defaultRoles = [
+    { name: UserRole.OWNER, is_system: true, permissions: ['*'] },
+    { name: UserRole.ADMIN, is_system: true, permissions: ['*'] },
+    { name: UserRole.MANAGER, is_system: true, permissions: ['tasks:read', 'tasks:write', 'tasks:approve', 'chat:read', 'chat:write'] },
+    { name: UserRole.MEMBER, is_system: true, permissions: ['tasks:read', 'tasks:write', 'chat:read', 'chat:write'] },
+  ];
+  for (const r of defaultRoles) {
+    const exists = await roleRepo.findOne({ where: { name: r.name } });
+    if (!exists) {
+      await roleRepo.save(roleRepo.create(r));
+    }
+  }
+
+  // 2. Seed Task Statuses
   const defaultStatuses = [
     { name: 'To Do', category: TaskStatusCategory.TODO, color: '#64748b', order: 0, is_closed: false, requires_approval: false },
     { name: 'In Progress', category: TaskStatusCategory.IN_PROGRESS, color: '#3b82f6', order: 1, is_closed: false, requires_approval: false },
@@ -210,7 +112,7 @@ async function seed() {
   const underReviewStatus = (await statusRepo.findOne({ where: { name: 'Under Review' } }))!;
   const doneStatus = (await statusRepo.findOne({ where: { name: 'Done' } }))!;
 
-  // 2. Seed All Required Departments
+  // 3. Seed Departments
   const deptNames = [
     'Administration',
     'HR',
@@ -228,7 +130,7 @@ async function seed() {
     depts[name] = d;
   }
 
-  // 3. Seed Branches in Pakistan
+  // 4. Seed Branches
   const branchData = [
     { name: 'Islamabad Blue Area (Head Office)', location: 'Blue Area, Jinnah Avenue, Islamabad' },
     { name: 'Lahore Gulberg Tech Branch', location: 'Main Boulevard, Gulberg III, Lahore' },
@@ -244,7 +146,7 @@ async function seed() {
   }
   const mainBranch = branches['Islamabad Blue Area (Head Office)'];
 
-  // 4. Seed Designations
+  // 5. Seed Designations
   const designationTitles = [
     'Chief Executive Officer (CEO)',
     'Head of Administration',
@@ -268,7 +170,7 @@ async function seed() {
     designations[title] = des;
   }
 
-  // 5. Seed Employees with Pakistani Names & Designations
+  // 6. Seed Employees
   const defaultPasswordHash = await bcrypt.hash('Password123!', 10);
   const employeeData = [
     {
@@ -355,7 +257,6 @@ async function seed() {
       dept: 'Sales',
       desig: 'Key Account Executive',
     },
-    // Keep Alice as alias for Tariq
     {
       name: 'Alice Adams (Backup Admin)',
       email: 'alice@acme.com',
@@ -382,7 +283,6 @@ async function seed() {
         }),
       );
     } else {
-      // Update with Pakistani name & designation
       u.name = emp.name;
       u.department_id = depts[emp.dept]?.id;
       u.designation_id = designations[emp.desig]?.id;
@@ -402,7 +302,7 @@ async function seed() {
   const usman = userMap['usman.farooq@acme.com'];
   const omer = userMap['omer.sheikh@acme.com'];
 
-  // 6. Seed Department & Team Conversations
+  // 7. Seed Team & Department Conversations
   const conversationChannels = [
     { title: 'General Announcements', type: ConversationType.GROUP, desc: 'Official organization all-hands communication' },
     { title: 'Executive Management', type: ConversationType.GROUP, desc: 'CEO and Department Heads coordination' },
@@ -426,7 +326,6 @@ async function seed() {
         }),
       );
 
-      // Add all members to general and appropriate members to other channels
       for (const empUser of Object.values(userMap)) {
         await memberRepo.save(
           memberRepo.create({
@@ -440,12 +339,11 @@ async function seed() {
     convMap[c.title] = conv;
   }
 
-  // Seed 1:1 Direct Chats
   const itConv = convMap['IT & Engineering Support'];
   const accountsConv = convMap['Finance & Accounts Team'];
   const hrConv = convMap['HR & Talent Operations'];
 
-  // 7. Seed Messages in Conversations
+  // 8. Seed Initial Messages
   const m1Id = uuidv7();
   let m1 = await messageRepo.findOne({ where: { id: m1Id } });
   if (!m1 && itConv) {
@@ -494,7 +392,7 @@ async function seed() {
     }
   }
 
-  // 8. Seed Corporate Tasks
+  // 9. Seed Corporate Tasks
   const corporateTasks = [
     {
       title: 'FBR Withholding Tax & Monthly Sales Tax Return Filing',
@@ -623,13 +521,12 @@ async function seed() {
         checklistRepo.create({
           task_id: task.id,
           title: item,
-          is_completed: idx === 0, // first item completed
+          is_completed: idx === 0,
           order: idx,
         }),
       );
       await checklistRepo.save(clEntities);
 
-      // Post Task Card in Conversation if linked
       if (tData.conv) {
         await messageRepo.save(
           messageRepo.create({
@@ -646,69 +543,7 @@ async function seed() {
     }
   }
 
-  // 6. Seed Secondary Tenant Globex (for Multi-Tenant Isolation Tests)
-  try {
-    const globexSub = 'globex';
-    const globexDb = `tenant_${globexSub}`;
-    const gClient = new Client({ host, port, user, password, database: 'postgres' });
-    await gClient.connect();
-    const gCheck = await gClient.query('SELECT 1 FROM pg_database WHERE datname = $1', [globexDb]);
-    if (gCheck.rowCount === 0) {
-      await gClient.query(`CREATE DATABASE "${globexDb}"`);
-    }
-    await gClient.end();
-
-    let globexTenant = await tenantRepo.findOne({ where: { subdomain: globexSub } });
-    if (!globexTenant) {
-      globexTenant = await tenantRepo.save(
-        tenantRepo.create({
-          name: 'Globex Corp International',
-          subdomain: globexSub,
-          db_name: globexDb,
-          db_host: host,
-          db_port: port,
-          db_user: user,
-          db_password_encrypted: encryptedPass,
-          plan: 'pro',
-          status: TenantStatus.ACTIVE,
-          schema_version: 1,
-        }),
-      );
-    }
-
-    const globexDS = new DataSource({
-      type: 'postgres',
-      host,
-      port,
-      username: user,
-      password,
-      database: globexDb,
-      entities: TENANT_ENTITIES,
-      synchronize: true,
-      logging: false,
-    });
-    await globexDS.initialize();
-    const gUserRepo = globexDS.getRepository(User);
-    const existingSarah = await gUserRepo.findOne({ where: { email: 'sarah@globex.com' } });
-    if (!existingSarah) {
-      await gUserRepo.save(
-        gUserRepo.create({
-          id: uuidv7(),
-          email: 'sarah@globex.com',
-          name: 'Sarah Connor',
-          password_hash: defaultPasswordHash,
-          role: UserRole.ADMIN,
-          status: UserStatus.ACTIVE,
-        }),
-      );
-    }
-    await globexDS.destroy();
-  } catch (err: any) {
-    console.warn('Note: Globex seed skipped or failed:', err.message);
-  }
-
-  await tenantDS.destroy();
-  await controlDS.destroy();
+  await appDS.destroy();
 
   console.log('\n=== SEEDING COMPLETED SUCCESSFULLY ===');
   console.log('Pakistani Corporate Demo Accounts:');

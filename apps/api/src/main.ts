@@ -9,12 +9,12 @@ import { Client } from 'pg';
 import * as express from 'express';
 import * as path from 'path';
 
-async function ensureControlDatabaseExists() {
+async function ensureDatabaseExists() {
   const host = process.env.DB_HOST || '127.0.0.1';
   const port = parseInt(process.env.DB_PORT || '5432', 10);
   const user = process.env.DB_USER || 'postgres';
-  const password = process.env.DB_PASSWORD || '';
-  const controlDbName = process.env.DB_CONTROL_NAME || 'taskcom';
+  const password = process.env.DB_PASSWORD || 'root';
+  const dbName = process.env.DB_NAME || 'taskcom';
 
   const client = new Client({
     host,
@@ -26,21 +26,21 @@ async function ensureControlDatabaseExists() {
 
   try {
     await client.connect();
-    const res = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [controlDbName]);
+    const res = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName]);
     if (res.rowCount === 0) {
-      Logger.log(`Control database '${controlDbName}' not found. Creating...`, 'Bootstrap');
-      await client.query(`CREATE DATABASE "${controlDbName}"`);
-      Logger.log(`Control database '${controlDbName}' created.`, 'Bootstrap');
+      Logger.log(`Database '${dbName}' not found. Creating...`, 'Bootstrap');
+      await client.query(`CREATE DATABASE "${dbName}"`);
+      Logger.log(`Database '${dbName}' created.`, 'Bootstrap');
     }
   } catch (err: any) {
-    Logger.error(`Error verifying/creating control database: ${err.message}`, 'Bootstrap');
+    Logger.error(`Error verifying/creating database: ${err.message}`, 'Bootstrap');
   } finally {
     await client.end();
   }
 }
 
 async function bootstrap() {
-  await ensureControlDatabaseExists();
+  await ensureDatabaseExists();
 
   const app = await NestFactory.create(AppModule);
 
@@ -63,8 +63,8 @@ async function bootstrap() {
 
   // Swagger / OpenAPI documentation
   const config = new DocumentBuilder()
-    .setTitle('Team Chat + Task Management SaaS API')
-    .setDescription('Multi-tenant SaaS API featuring WhatsApp-style chat with complete task management')
+    .setTitle('TaskCom Team Chat & Task Management API')
+    .setDescription('Application API featuring team chat, department channels, real-time messaging, and comprehensive task management')
     .setVersion('1.0')
     .addBearerAuth()
     .build();

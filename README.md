@@ -2,9 +2,9 @@
 
 A modern, production-ready enterprise team communication and task management platform featuring:
 - **Frontend**: **Next.js 14** (App Router, React 18, Tailwind CSS, Lucide icons, Zustand state management, Socket.io client).
-- **Backend**: **NestJS** with **TypeORM**, JWT authentication, role-based access control, WebSocket gateway, and file storage.
-- **Database**: **PostgreSQL** running on port `5433` (pgAdmin server: **CRM visa**, Database: **taskcom**).
-- **Testing**: Unit tests and multi-tenant security isolation tests for both backend and frontend.
+- **Backend**: **NestJS** with **TypeORM**, JWT authentication, role-based access control (RBAC), WebSocket gateway, and file storage.
+- **Database**: **PostgreSQL** (Database: **taskcom**).
+- **Testing**: Comprehensive unit test suites and end-to-end integration tests for both backend and frontend.
 
 ---
 
@@ -14,17 +14,17 @@ A modern, production-ready enterprise team communication and task management pla
 graph TD
     Client["Next.js 14 Web Frontend (:3000)"]
     API["NestJS Backend API & WebSocket Gateway (:4000)"]
-    Postgres[("PostgreSQL 18 - port 5433\n[pgAdmin Server: CRM visa]\nDatabase: taskcom")]
+    Postgres[("PostgreSQL\nDatabase: taskcom")]
 
     Client -->|REST API & WebSockets| API
-    API -->|TypeORM Connections| Postgres
+    API -->|TypeORM Connection| Postgres
 ```
 
 ### Key Modules:
-- **Authentication & Security**: Multi-tenant resolution, rotating refresh tokens, Bcrypt hashing, AES-256-GCM encryption, Role guards (`OWNER`, `ADMIN`, `MANAGER`, `MEMBER`).
-- **Chat & Messaging**: WhatsApp-style direct messages, department channels (`#administration`, `#hr`, `#accounts`, `#it`, `#marketing`, `#sales`), typing indicators, online presence, attachments, and 1-click converting messages into tasks.
-- **Task Management**: Kanban board & list view, status transitions (`To Do`, `In Progress`, `Under Review`, `Done`, `Cancelled`, `On Hold`), priority indicators (`URGENT`, `HIGH`, `MEDIUM`, `LOW`), checklists, deadline extension requests, activity audit logs, and real-time task comments.
-- **Organization & Admin**: Branches (Islamabad Head Office, Lahore, Karachi), departments, designations, member invitation management.
+- **Authentication & Security**: JWT authentication, rotating refresh tokens, Bcrypt password hashing, Role-Based Access Control (`OWNER`, `ADMIN`, `MANAGER`, `MEMBER`).
+- **Chat & Messaging**: Direct 1-to-1 messages, department channels (`#Administration`, `#HR`, `#Accounts`, `#IT`, `#Marketing`, `#Sales`), typing indicators, online presence, file attachments, and 1-click converting messages into tasks.
+- **Task Management**: Kanban board & list view, status transitions (`To Do`, `In Progress`, `Under Review`, `Done`, `Cancelled`, `On Hold`, `Reopened`), priority indicators (`URGENT`, `HIGH`, `MEDIUM`, `LOW`), checklists, deadline extension requests, activity audit logs, and real-time task comments.
+- **Organization & Admin**: Branches (Islamabad Head Office, Lahore, Karachi), departments, designations, and team member invitation management.
 - **Analytics & Reports**: Personal & manager dashboards, completion velocity, overdue task tracking, workload distribution, and CSV export.
 - **Localization**: Full English (`en`) and Urdu (`ur`) internationalization with RTL support.
 
@@ -34,9 +34,8 @@ graph TD
 
 | Setting | Value |
 |---|---|
-| **pgAdmin Server** | `CRM visa` |
 | **Host** | `127.0.0.1` / `localhost` |
-| **Port** | `5433` |
+| **Port** | `5432` |
 | **User** | `postgres` |
 | **Password** | `root` |
 | **Database Name** | `taskcom` |
@@ -48,7 +47,7 @@ graph TD
 ### 1. Prerequisites
 - **Node.js**: v18+ (tested on Node v24)
 - **pnpm**: v9+ (or v12)
-- **PostgreSQL**: Running on port `5433` with database `taskcom`
+- **PostgreSQL**: Running on port `5432`
 
 ### 2. Environment Setup
 The `.env` file at the root (and in `apps/api/.env`) is pre-configured for `taskcom`:
@@ -58,16 +57,14 @@ API_URL=http://localhost:4000
 WEB_URL=http://localhost:3000
 
 DB_HOST=127.0.0.1
-DB_PORT=5433
+DB_PORT=5432
 DB_USER=postgres
 DB_PASSWORD=root
-DB_CONTROL_NAME=taskcom
 DB_NAME=taskcom
-DEFAULT_TENANT_SUBDOMAIN=taskcom
 ```
 
 ### 3. Seed Database
-To populate `taskcom` with departments, branches, designations, Pakistani corporate demo accounts, conversations, and tasks:
+To populate `taskcom` with default roles, task statuses, departments, branches, designations, Pakistani corporate demo accounts, conversations, messages, and tasks:
 ```bash
 pnpm seed
 ```
@@ -84,6 +81,7 @@ pnpm dev:web   # Starts Next.js frontend
 ```
 
 ### 5. Production Build
+Build all packages and applications:
 ```bash
 pnpm build
 ```
@@ -97,9 +95,9 @@ Run all unit tests across the backend and frontend:
 pnpm test
 ```
 
-Run cross-tenant security and isolation test suite:
+Run end-to-end integration test suite:
 ```bash
-pnpm test:isolation
+pnpm --filter @saas/api test:e2e
 ```
 
 ---
@@ -115,8 +113,7 @@ pnpm test:isolation
 | **DevOps / IT Lead** | Hamza Ali | `hamza.ali@acme.com` | `Password123!` |
 | **Marketing Head** | Ayesha Khan | `ayesha.khan@acme.com` | `Password123!` |
 | **Sales Manager** | Kamran Akram | `kamran.akram@acme.com` | `Password123!` |
-| **Default Member** | Alice Smith | `alice@acme.com` | `Password123!` |
-| **Super Admin** | Master Super Admin | `superadmin@saas.com` | `SuperAdmin123!` |
+| **Default Admin / Backup** | Alice Adams | `alice@acme.com` | `Password123!` |
 
 ---
 

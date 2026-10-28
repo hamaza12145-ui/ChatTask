@@ -29,39 +29,10 @@ export interface LoginResponseDto {
     department?: any;
     designation?: any;
   };
-  tenant: {
-    id: string;
-    name: string;
-    subdomain: string;
-  };
 }
 
 export interface RefreshTokenRequestDto {
   refresh_token: string;
-}
-
-export interface SuperAdminLoginRequestDto {
-  email: string;
-  password: string;
-}
-
-export interface SuperAdminLoginResponseDto {
-  access_token: string;
-  admin: {
-    id: string;
-    email: string;
-    name: string;
-  };
-}
-
-// Tenant Provisioning DTOs
-export interface CreateTenantDto {
-  name: string;
-  subdomain: string;
-  admin_name: string;
-  admin_email: string;
-  admin_password: string;
-  plan_id?: string;
 }
 
 // User / Organization DTOs

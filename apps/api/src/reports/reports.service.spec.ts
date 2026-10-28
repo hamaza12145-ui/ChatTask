@@ -1,9 +1,8 @@
 import { ReportsService } from './reports.service';
-import { TenantConnectionService } from '../tenancy/tenant-connection.service';
 
 describe('ReportsService', () => {
   let service: ReportsService;
-  let mockTenantConnectionService: Partial<TenantConnectionService>;
+  let mockDataSource: any;
   let mockTaskRepo: any;
 
   beforeEach(() => {
@@ -16,13 +15,11 @@ describe('ReportsService', () => {
       }),
     };
 
-    mockTenantConnectionService = {
-      getDataSourceForCurrentRequest: jest.fn().mockResolvedValue({
-        getRepository: jest.fn().mockReturnValue(mockTaskRepo),
-      }),
+    mockDataSource = {
+      getRepository: jest.fn().mockReturnValue(mockTaskRepo),
     };
 
-    service = new ReportsService(mockTenantConnectionService as TenantConnectionService);
+    service = new ReportsService(mockDataSource);
   });
 
   it('should calculate personal dashboard metrics correctly', async () => {

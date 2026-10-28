@@ -1,10 +1,10 @@
 import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { ClsService } from 'nestjs-cls';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
-import { TenantConnectionService } from '../tenancy/tenant-connection.service';
-import { User, RefreshToken, Invitation } from '../tenant-entities';
+import { User, RefreshToken, Invitation } from '../entities';
 import {
   LoginRequestDto,
   LoginResponseDto,
@@ -12,7 +12,6 @@ import {
   UserStatus,
   UserRole,
 } from '@saas/shared';
-import { Tenant } from '../control/entities/tenant.entity';
 
 @Injectable()
 export class AuthService {
@@ -20,14 +19,11 @@ export class AuthService {
 
   constructor(
     private readonly jwtService: JwtService,
-    private readonly cls: ClsService,
-    private readonly tenantConnectionService: TenantConnectionService,
+    @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
   async login(dto: LoginRequestDto): Promise<LoginResponseDto> {
-    const dataSource = await this.tenantConnectionService.getDataSourceForCurrentRequest();
-    const userRepo = dataSource.getRepository(User);
-    const tenant = this.cls.get<Tenant>('tenant');
+    const userRepo = this.dataSource.getRepository(User);
 
     const email = dto.email.trim().toLowerCase();
     const user = await userRepo.findOne({
@@ -54,7 +50,6 @@ export class AuthService {
       email: user.email,
       name: user.name,
       role: user.role,
-      tenant_id: tenant.id,
       department_id: user.department_id,
     };
 
@@ -67,7 +62,7 @@ export class AuthService {
     const rawRefreshToken = crypto.randomBytes(40).toString('hex');
     const hashedRefreshToken = await bcrypt.hash(rawRefreshToken, 10);
 
-    const refreshRepo = dataSource.getRepository(RefreshToken);
+    const refreshRepo = this.dataSource.getRepository(RefreshToken);
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
 
@@ -93,19 +88,12 @@ export class AuthService {
         department: user.department,
         designation: user.designation,
       },
-      tenant: {
-        id: tenant.id,
-        name: tenant.name,
-        subdomain: tenant.subdomain,
-      },
     };
   }
 
   async refreshToken(refreshTokenWithUserId: string): Promise<{ access_token: string; refresh_token: string }> {
-    const dataSource = await this.tenantConnectionService.getDataSourceForCurrentRequest();
-    const refreshRepo = dataSource.getRepository(RefreshToken);
-    const userRepo = dataSource.getRepository(User);
-    const tenant = this.cls.get<Tenant>('tenant');
+    const refreshRepo = this.dataSource.getRepository(RefreshToken);
+    const userRepo = this.dataSource.getRepository(User);
 
     const parts = refreshTokenWithUserId.split('.');
     if (parts.length !== 2) {
@@ -150,7 +138,6 @@ export class AuthService {
       email: user.email,
       name: user.name,
       role: user.role,
-      tenant_id: tenant.id,
       department_id: user.department_id,
     };
 
@@ -180,25 +167,21 @@ export class AuthService {
   }
 
   async logout(userId: string): Promise<void> {
-    const dataSource = await this.tenantConnectionService.getDataSourceForCurrentRequest();
-    const refreshRepo = dataSource.getRepository(RefreshToken);
+    const refreshRepo = this.dataSource.getRepository(RefreshToken);
     await refreshRepo.update({ user_id: userId, is_revoked: false }, { is_revoked: true });
   }
 
   async deactivateUser(userId: string): Promise<void> {
-    const dataSource = await this.tenantConnectionService.getDataSourceForCurrentRequest();
-    const userRepo = dataSource.getRepository(User);
-    const refreshRepo = dataSource.getRepository(RefreshToken);
+    const userRepo = this.dataSource.getRepository(User);
+    const refreshRepo = this.dataSource.getRepository(RefreshToken);
 
     await userRepo.update(userId, { status: UserStatus.INACTIVE });
-    // Revoke all refresh tokens immediately as specified!
     await refreshRepo.update({ user_id: userId }, { is_revoked: true });
   }
 
   async inviteUser(dto: InviteUserDto): Promise<{ inviteLink: string; token: string }> {
-    const dataSource = await this.tenantConnectionService.getDataSourceForCurrentRequest();
-    const inviteRepo = dataSource.getRepository(Invitation);
-    const userRepo = dataSource.getRepository(User);
+    const inviteRepo = this.dataSource.getRepository(Invitation);
+    const userRepo = this.dataSource.getRepository(User);
 
     const email = dto.email.trim().toLowerCase();
     const existingUser = await userRepo.findOne({ where: { email } });
@@ -222,7 +205,7 @@ export class AuthService {
       }),
     );
 
-    const webUrl = process.env.WEB_URL || 'http://localhost:5173';
+    const webUrl = process.env.WEB_URL || 'http://localhost:3000';
     return {
       token,
       inviteLink: `${webUrl}/accept-invite?token=${token}`,
@@ -230,9 +213,8 @@ export class AuthService {
   }
 
   async acceptInvite(token: string, password: string, name: string): Promise<User> {
-    const dataSource = await this.tenantConnectionService.getDataSourceForCurrentRequest();
-    const inviteRepo = dataSource.getRepository(Invitation);
-    const userRepo = dataSource.getRepository(User);
+    const inviteRepo = this.dataSource.getRepository(Invitation);
+    const userRepo = this.dataSource.getRepository(User);
 
     const invite = await inviteRepo.findOne({ where: { token, is_accepted: false } });
     if (!invite || new Date() > invite.expires_at) {

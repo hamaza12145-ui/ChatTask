@@ -1,14 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as webpush from 'web-push';
-import { TenantConnectionService } from '../tenancy/tenant-connection.service';
-import { Notification, UserNotificationSettings } from '../tenant-entities';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { Notification, UserNotificationSettings } from '../entities';
 import { NotificationType } from '@saas/shared';
 
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
-  constructor(private readonly tenantConnectionService: TenantConnectionService) {
+  constructor(@InjectDataSource() private readonly ds: DataSource) {
     const vapidPublic = process.env.VAPID_PUBLIC_KEY;
     const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
     const vapidSubject = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
@@ -23,8 +24,7 @@ export class NotificationsService {
   }
 
   async getUserNotifications(userId: string): Promise<Notification[]> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
-    const repo = ds.getRepository(Notification);
+    const repo = this.ds.getRepository(Notification);
     return repo.find({
       where: { user_id: userId },
       order: { created_at: 'DESC' },
@@ -33,20 +33,17 @@ export class NotificationsService {
   }
 
   async markAsRead(notificationId: string, userId: string): Promise<void> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
-    const repo = ds.getRepository(Notification);
+    const repo = this.ds.getRepository(Notification);
     await repo.update({ id: notificationId, user_id: userId }, { is_read: true });
   }
 
   async markAllAsRead(userId: string): Promise<void> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
-    const repo = ds.getRepository(Notification);
+    const repo = this.ds.getRepository(Notification);
     await repo.update({ user_id: userId, is_read: false }, { is_read: true });
   }
 
   async getSettings(userId: string): Promise<UserNotificationSettings> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
-    const repo = ds.getRepository(UserNotificationSettings);
+    const repo = this.ds.getRepository(UserNotificationSettings);
     let settings = await repo.findOne({ where: { user_id: userId } });
     if (!settings) {
       settings = await repo.save(
@@ -64,15 +61,13 @@ export class NotificationsService {
   }
 
   async updateSettings(userId: string, update: Partial<UserNotificationSettings>): Promise<UserNotificationSettings> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
-    const repo = ds.getRepository(UserNotificationSettings);
+    const repo = this.ds.getRepository(UserNotificationSettings);
     await repo.update({ user_id: userId }, update);
     return this.getSettings(userId);
   }
 
   async registerPushSubscription(userId: string, subscription: any): Promise<void> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
-    const repo = ds.getRepository(UserNotificationSettings);
+    const repo = this.ds.getRepository(UserNotificationSettings);
     await repo.update({ user_id: userId }, { push_subscription: subscription, push_notifications: true });
   }
 

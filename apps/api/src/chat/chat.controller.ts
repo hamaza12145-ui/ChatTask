@@ -8,13 +8,11 @@ import {
   Body,
   Query,
   UseGuards,
-  Patch,
 } from '@nestjs/common';
 import { ChatService } from './chat.service';
 import { SocketGateway } from '../realtime/socket.gateway';
-import { JwtTenantGuard } from '../common/guards/jwt-tenant.guard';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
-import { ClsService } from 'nestjs-cls';
 import {
   CreateConversationDto,
   SendMessageDto,
@@ -22,12 +20,11 @@ import {
 } from '@saas/shared';
 
 @Controller('api/chat')
-@UseGuards(JwtTenantGuard)
+@UseGuards(JwtAuthGuard)
 export class ChatController {
   constructor(
     private readonly chatService: ChatService,
     private readonly socketGateway: SocketGateway,
-    private readonly cls: ClsService,
   ) {}
 
   @Get('conversations')
@@ -60,10 +57,7 @@ export class ChatController {
     @CurrentUser() user: CurrentUserPayload,
   ) {
     const message = await this.chatService.sendMessage(dto, user.id);
-    const tenantId = this.cls.get<string>('tenantId');
-
-    // Broadcast in real-time to tenant's conversation room
-    this.socketGateway.broadcastNewMessage(tenantId, dto.conversation_id, message);
+    this.socketGateway.broadcastNewMessage(dto.conversation_id, message);
     return message;
   }
 
@@ -74,8 +68,7 @@ export class ChatController {
     @CurrentUser() user: CurrentUserPayload,
   ) {
     const updated = await this.chatService.editMessage(messageId, dto, user.id);
-    const tenantId = this.cls.get<string>('tenantId');
-    this.socketGateway.broadcastMessageEdited(tenantId, updated.conversation_id, updated);
+    this.socketGateway.broadcastMessageEdited(updated.conversation_id, updated);
     return updated;
   }
 
@@ -97,8 +90,7 @@ export class ChatController {
     @CurrentUser() user: CurrentUserPayload,
   ) {
     await this.chatService.markAsRead(conversationId, messageId, user.id);
-    const tenantId = this.cls.get<string>('tenantId');
-    this.socketGateway.broadcastReadReceipt(tenantId, conversationId, user.id, messageId);
+    this.socketGateway.broadcastReadReceipt(conversationId, user.id, messageId);
     return { success: true };
   }
 

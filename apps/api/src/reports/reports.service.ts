@@ -1,15 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import { TenantConnectionService } from '../tenancy/tenant-connection.service';
-import { Task, TaskStatus, User, Department } from '../tenant-entities';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { Task, TaskStatus, User, Department } from '../entities';
 import { TaskStatusCategory } from '@saas/shared';
 
 @Injectable()
 export class ReportsService {
-  constructor(private readonly tenantConnectionService: TenantConnectionService) {}
+  constructor(@InjectDataSource() private readonly ds: DataSource) {}
 
   async getPersonalDashboard(userId: string) {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
-    const taskRepo = ds.getRepository(Task);
+    const taskRepo = this.ds.getRepository(Task);
 
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -62,10 +62,9 @@ export class ReportsService {
   }
 
   async getManagerDashboard() {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
-    const userRepo = ds.getRepository(User);
-    const deptRepo = ds.getRepository(Department);
-    const taskRepo = ds.getRepository(Task);
+    const userRepo = this.ds.getRepository(User);
+    const deptRepo = this.ds.getRepository(Department);
+    const taskRepo = this.ds.getRepository(Task);
 
     const users = await userRepo.find({ relations: ['department'] });
     const departments = await deptRepo.find();
@@ -148,8 +147,7 @@ export class ReportsService {
   }
 
   async exportTasksToCsv(): Promise<string> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
-    const taskRepo = ds.getRepository(Task);
+    const taskRepo = this.ds.getRepository(Task);
 
     const tasks = await taskRepo.find({
       relations: ['status', 'creator', 'department', 'assignees', 'assignees.user'],

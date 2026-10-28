@@ -3,7 +3,6 @@ const API_BASE = 'http://localhost:4000/api';
 class ApiClient {
   private getHeaders(): Record<string, string> {
     let token = '';
-    let subdomain = 'acme';
 
     if (typeof window !== 'undefined') {
       const authState = localStorage.getItem('auth_storage');
@@ -11,14 +10,12 @@ class ApiClient {
         try {
           const parsed = JSON.parse(authState);
           token = parsed.state?.token || '';
-          subdomain = parsed.state?.tenant?.subdomain || parsed.state?.currentSubdomain || 'acme';
         } catch {}
       }
     }
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'X-Tenant': subdomain,
     };
 
     if (token) {

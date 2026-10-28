@@ -7,19 +7,17 @@ export interface PresignedUploadResult {
 
 export interface IStorageDriver {
   getPresignedUploadUrl(
-    tenantId: string,
     filename: string,
     contentType: string,
   ): Promise<PresignedUploadResult>;
 
   saveFile(
-    tenantId: string,
     filename: string,
     buffer: Buffer,
     contentType: string,
   ): Promise<{ file_url: string; key: string; size: number }>;
 
-  deleteFile(tenantId: string, key: string): Promise<void>;
+  deleteFile(key: string): Promise<void>;
 
-  getFileStream(tenantId: string, key: string): Promise<{ stream: any; contentType: string; size: number }>;
+  getFileStream(key: string): Promise<{ stream: any; contentType: string; size: number }>;
 }

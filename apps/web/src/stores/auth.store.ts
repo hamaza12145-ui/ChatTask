@@ -19,27 +19,16 @@ export interface AuthUser {
   } | null;
 }
 
-export interface TenantInfo {
-  id: string;
-  name: string;
-  subdomain: string;
-}
-
 interface AuthState {
   user: AuthUser | null;
-  tenant: TenantInfo | null;
-  currentSubdomain: string;
   token: string | null;
   refreshToken: string | null;
-  isSuperAdmin: boolean;
   theme: 'light' | 'dark';
   locale: Locale;
-  activeTab: 'chats' | 'tasks' | 'reports' | 'org_admin' | 'super_admin';
+  activeTab: 'chats' | 'tasks' | 'reports' | 'org_admin';
 
-  setAuth: (user: AuthUser, tenant: TenantInfo, token: string, refreshToken: string) => void;
-  setSuperAdminAuth: (token: string, admin: any) => void;
-  setSubdomain: (subdomain: string) => void;
-  setActiveTab: (tab: 'chats' | 'tasks' | 'reports' | 'org_admin' | 'super_admin') => void;
+  setAuth: (user: AuthUser, token: string, refreshToken: string) => void;
+  setActiveTab: (tab: 'chats' | 'tasks' | 'reports' | 'org_admin') => void;
   toggleTheme: () => void;
   setLocale: (locale: Locale) => void;
   logout: () => void;
@@ -49,37 +38,20 @@ export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
       user: null,
-      tenant: null,
-      currentSubdomain: 'acme',
       token: null,
       refreshToken: null,
-      isSuperAdmin: false,
       theme: 'light',
       locale: 'en',
       activeTab: 'chats',
 
-      setAuth: (user, tenant, token, refreshToken) => {
+      setAuth: (user: AuthUser, token: string, refreshToken: string) => {
         set({
           user,
-          tenant,
-          currentSubdomain: tenant.subdomain,
           token,
           refreshToken,
-          isSuperAdmin: false,
         });
       },
 
-      setSuperAdminAuth: (token, admin) => {
-        set({
-          user: { id: admin.id, email: admin.email, name: admin.name, role: 'SUPER_ADMIN' },
-          tenant: null,
-          token,
-          isSuperAdmin: true,
-          activeTab: 'super_admin',
-        });
-      },
-
-      setSubdomain: (subdomain) => set({ currentSubdomain: subdomain }),
       setActiveTab: (activeTab) => set({ activeTab }),
 
       toggleTheme: () => {
@@ -105,10 +77,8 @@ export const useAuthStore = create<AuthState>()(
       logout: () => {
         set({
           user: null,
-          tenant: null,
           token: null,
           refreshToken: null,
-          isSuperAdmin: false,
         });
       },
     }),

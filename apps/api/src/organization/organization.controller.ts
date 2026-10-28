@@ -2,14 +2,13 @@ import {
   Controller,
   Get,
   Post,
-  Put,
   Param,
   Body,
   UseGuards,
   Patch,
 } from '@nestjs/common';
 import { OrganizationService } from './organization.service';
-import { JwtTenantGuard } from '../common/guards/jwt-tenant.guard';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
@@ -21,7 +20,7 @@ import {
 } from '@saas/shared';
 
 @Controller('api/org')
-@UseGuards(JwtTenantGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class OrganizationController {
   constructor(private readonly orgService: OrganizationService) {}
 

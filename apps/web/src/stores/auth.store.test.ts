@@ -9,11 +9,10 @@ describe('AuthStore', () => {
     const state = useAuthStore.getState();
     expect(state.user).toBeNull();
     expect(state.token).toBeNull();
-    expect(state.currentSubdomain).toBe('acme');
     expect(state.activeTab).toBe('chats');
   });
 
-  it('should set authenticated user and tenant info', () => {
+  it('should set authenticated user and tokens', () => {
     useAuthStore.getState().setAuth(
       {
         id: 'u-1',
@@ -21,20 +20,14 @@ describe('AuthStore', () => {
         name: 'Muhammad Tariq',
         role: 'OWNER',
       },
-      {
-        id: 't-1',
-        name: 'TechPak Enterprises',
-        subdomain: 'acme',
-      },
       'jwt-token-123',
       'refresh-token-123',
     );
 
     const state = useAuthStore.getState();
     expect(state.user?.email).toBe('tariq@acme.com');
-    expect(state.tenant?.subdomain).toBe('acme');
     expect(state.token).toBe('jwt-token-123');
-    expect(state.isSuperAdmin).toBe(false);
+    expect(state.refreshToken).toBe('refresh-token-123');
   });
 
   it('should switch active tab correctly', () => {
@@ -48,7 +41,6 @@ describe('AuthStore', () => {
   it('should clear state on logout', () => {
     useAuthStore.getState().setAuth(
       { id: 'u-1', email: 'alice@acme.com', name: 'Alice', role: 'ADMIN' },
-      { id: 't-1', name: 'Acme', subdomain: 'acme' },
       'tok',
       'ref',
     );
@@ -57,5 +49,6 @@ describe('AuthStore', () => {
     const state = useAuthStore.getState();
     expect(state.user).toBeNull();
     expect(state.token).toBeNull();
+    expect(state.refreshToken).toBeNull();
   });
 });

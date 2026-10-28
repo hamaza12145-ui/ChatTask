@@ -8,11 +8,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
-import { JwtTenantGuard } from '../common/guards/jwt-tenant.guard';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
 
 @Controller('api/notifications')
-@UseGuards(JwtTenantGuard)
+@UseGuards(JwtAuthGuard)
 export class NotificationsController {
   constructor(private readonly notifService: NotificationsService) {}
 
@@ -50,11 +50,11 @@ export class NotificationsController {
   }
 
   @Post('push-subscription')
-  async subscribePush(
+  async registerPush(
     @CurrentUser() user: CurrentUserPayload,
-    @Body() subscription: any,
+    @Body() body: any,
   ) {
-    await this.notifService.registerPushSubscription(user.id, subscription);
+    await this.notifService.registerPushSubscription(user.id, body);
     return { success: true };
   }
 }

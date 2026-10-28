@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuthStore } from './stores/auth.store';
 import { useSocketStore } from './stores/socket.store';
 import { useChatStore, ChatMessage } from './stores/chat.store';
-import { useTaskStore, TaskItem } from './stores/task.store';
+import { useTaskStore } from './stores/task.store';
 import { Navbar } from './components/Navbar';
 import { ChatView } from './components/ChatView';
 import { TaskBoard } from './components/TaskBoard';
@@ -11,7 +11,6 @@ import { TaskDetailModal } from './components/TaskDetailModal';
 import { CreateTaskModal } from './components/CreateTaskModal';
 import { ReportsView } from './components/ReportsView';
 import { AdminView } from './components/AdminView';
-import { SuperAdminView } from './components/SuperAdminView';
 import { LoginModal } from './components/LoginModal';
 import { api } from './api/client';
 
@@ -23,7 +22,7 @@ export const App: React.FC = () => {
 
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
 
-  // Auto-login to demo tenant (Alice @ Acme) if first launch so user immediately sees live working system!
+  // Auto-login to demo account (Alice / Tariq) if first launch so user immediately sees live working system!
   useEffect(() => {
     if (!user) {
       api.post<any>('/auth/login', {
@@ -31,7 +30,7 @@ export const App: React.FC = () => {
         password: 'Password123!',
       })
         .then((res) => {
-          setAuth(res.user, res.tenant, res.access_token, res.refresh_token);
+          setAuth(res.user, res.access_token, res.refresh_token);
           connect();
           fetchConversations();
           fetchTasks();
@@ -81,7 +80,6 @@ export const App: React.FC = () => {
         )}
         {activeTab === 'reports' && <ReportsView />}
         {activeTab === 'org_admin' && <AdminView />}
-        {activeTab === 'super_admin' && <SuperAdminView />}
       </main>
 
       {/* Modals */}

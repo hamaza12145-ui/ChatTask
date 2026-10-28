@@ -12,9 +12,8 @@ import {
 } from '@nestjs/common';
 import { TasksService } from './tasks.service';
 import { SocketGateway } from '../realtime/socket.gateway';
-import { JwtTenantGuard } from '../common/guards/jwt-tenant.guard';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
-import { ClsService } from 'nestjs-cls';
 import {
   CreateTaskDto,
   QuickCreateTaskDto,
@@ -28,12 +27,11 @@ import {
 } from '@saas/shared';
 
 @Controller('api/tasks')
-@UseGuards(JwtTenantGuard)
+@UseGuards(JwtAuthGuard)
 export class TasksController {
   constructor(
     private readonly tasksService: TasksService,
     private readonly socketGateway: SocketGateway,
-    private readonly cls: ClsService,
   ) {}
 
   @Get()
@@ -66,8 +64,7 @@ export class TasksController {
     @CurrentUser() user: CurrentUserPayload,
   ) {
     const task = await this.tasksService.createTask(dto, user.id);
-    const tenantId = this.cls.get<string>('tenantId');
-    this.socketGateway.broadcastTaskUpdate(tenantId, task, dto.conversation_id);
+    this.socketGateway.broadcastTaskUpdate(task, dto.conversation_id);
     return task;
   }
 
@@ -77,8 +74,7 @@ export class TasksController {
     @CurrentUser() user: CurrentUserPayload,
   ) {
     const task = await this.tasksService.quickCreate(dto, user.id);
-    const tenantId = this.cls.get<string>('tenantId');
-    this.socketGateway.broadcastTaskUpdate(tenantId, task, dto.conversation_id);
+    this.socketGateway.broadcastTaskUpdate(task, dto.conversation_id);
     return task;
   }
 
@@ -102,8 +98,7 @@ export class TasksController {
     @CurrentUser() user: CurrentUserPayload,
   ) {
     const task = await this.tasksService.updateTaskStatus(taskId, statusId, user.id);
-    const tenantId = this.cls.get<string>('tenantId');
-    this.socketGateway.broadcastTaskUpdate(tenantId, task);
+    this.socketGateway.broadcastTaskUpdate(task);
     return task;
   }
 
@@ -114,8 +109,7 @@ export class TasksController {
     @CurrentUser() user: CurrentUserPayload,
   ) {
     const task = await this.tasksService.submitProof(taskId, dto, user.id);
-    const tenantId = this.cls.get<string>('tenantId');
-    this.socketGateway.broadcastTaskUpdate(tenantId, task);
+    this.socketGateway.broadcastTaskUpdate(task);
     return task;
   }
 
@@ -126,8 +120,7 @@ export class TasksController {
     @CurrentUser() user: CurrentUserPayload,
   ) {
     const task = await this.tasksService.reviewApproval(taskId, dto, user.id);
-    const tenantId = this.cls.get<string>('tenantId');
-    this.socketGateway.broadcastTaskUpdate(tenantId, task);
+    this.socketGateway.broadcastTaskUpdate(task);
     return task;
   }
 
@@ -138,8 +131,7 @@ export class TasksController {
     @CurrentUser() user: CurrentUserPayload,
   ) {
     const task = await this.tasksService.reassignTask(taskId, body.assignee_ids, body.reason, user.id);
-    const tenantId = this.cls.get<string>('tenantId');
-    this.socketGateway.broadcastTaskUpdate(tenantId, task);
+    this.socketGateway.broadcastTaskUpdate(task);
     return task;
   }
 
@@ -159,8 +151,7 @@ export class TasksController {
     @CurrentUser() user: CurrentUserPayload,
   ) {
     const task = await this.tasksService.reviewExtension(requestId, dto, user.id);
-    const tenantId = this.cls.get<string>('tenantId');
-    this.socketGateway.broadcastTaskUpdate(tenantId, task);
+    this.socketGateway.broadcastTaskUpdate(task);
     return task;
   }
 

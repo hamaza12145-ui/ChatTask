@@ -8,9 +8,8 @@
     "start": "node dist/main.js",
     "start:prod": "node dist/main.js",
     "test": "jest --config test/jest-unit.json",
-    "test:isolation": "jest --config test/jest-isolation.json --runInBand",
-    "seed": "ts-node src/seed/seed.ts",
-    "migrate:tenants": "ts-node src/tenancy/migration-cli.ts"
+    "test:e2e": "jest --config test/jest-e2e.json --runInBand",
+    "seed": "ts-node src/seed/seed.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.670.0",

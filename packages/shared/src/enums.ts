@@ -1,10 +1,3 @@
-export enum TenantStatus {
-  PROVISIONING = 'provisioning',
-  ACTIVE = 'active',
-  SUSPENDED = 'suspended',
-  DELETED = 'deleted',
-}
-
 export enum UserRole {
   OWNER = 'OWNER',
   ADMIN = 'ADMIN',
@@ -87,8 +80,6 @@ export enum AuditAction {
   BRANCH_CREATED = 'BRANCH_CREATED',
   SETTINGS_UPDATED = 'SETTINGS_UPDATED',
   TASK_STATUS_UPDATED = 'TASK_STATUS_UPDATED',
-  TENANT_CREATED = 'TENANT_CREATED',
-  TENANT_SUSPENDED = 'TENANT_SUSPENDED',
 }
 
 export enum NotificationType {

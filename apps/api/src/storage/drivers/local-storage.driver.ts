@@ -17,13 +17,12 @@ export class LocalStorageDriver implements IStorageDriver {
   }
 
   async getPresignedUploadUrl(
-    tenantId: string,
     filename: string,
     contentType: string,
   ): Promise<PresignedUploadResult> {
     const ext = path.extname(filename);
     const uniqueName = `${uuidv7()}${ext}`;
-    const key = `${tenantId}/${uniqueName}`;
+    const key = `attachments/${uniqueName}`;
     const apiUrl = process.env.API_URL || 'http://localhost:4000';
 
     return {
@@ -35,20 +34,19 @@ export class LocalStorageDriver implements IStorageDriver {
   }
 
   async saveFile(
-    tenantId: string,
     filename: string,
     buffer: Buffer,
     contentType: string,
   ): Promise<{ file_url: string; key: string; size: number }> {
-    const tenantDir = path.join(this.basePath, tenantId);
-    if (!fs.existsSync(tenantDir)) {
-      fs.mkdirSync(tenantDir, { recursive: true });
+    const attachmentsDir = path.join(this.basePath, 'attachments');
+    if (!fs.existsSync(attachmentsDir)) {
+      fs.mkdirSync(attachmentsDir, { recursive: true });
     }
 
     const ext = path.extname(filename);
     const uniqueName = `${uuidv7()}${ext}`;
-    const fullPath = path.join(tenantDir, uniqueName);
-    const key = `${tenantId}/${uniqueName}`;
+    const fullPath = path.join(attachmentsDir, uniqueName);
+    const key = `attachments/${uniqueName}`;
 
     await fs.promises.writeFile(fullPath, buffer);
     const apiUrl = process.env.API_URL || 'http://localhost:4000';
@@ -60,20 +58,14 @@ export class LocalStorageDriver implements IStorageDriver {
     };
   }
 
-  async deleteFile(tenantId: string, key: string): Promise<void> {
-    if (!key.startsWith(`${tenantId}/`)) {
-      throw new Error('Tenant isolation violation: cannot delete file outside tenant folder');
-    }
+  async deleteFile(key: string): Promise<void> {
     const fullPath = path.join(this.basePath, key);
     if (fs.existsSync(fullPath)) {
       await fs.promises.unlink(fullPath);
     }
   }
 
-  async getFileStream(tenantId: string, key: string): Promise<{ stream: any; contentType: string; size: number }> {
-    if (!key.startsWith(`${tenantId}/`)) {
-      throw new Error('Tenant isolation violation: cannot access file outside tenant folder');
-    }
+  async getFileStream(key: string): Promise<{ stream: any; contentType: string; size: number }> {
     const fullPath = path.join(this.basePath, key);
     if (!fs.existsSync(fullPath)) {
       throw new Error('File not found');

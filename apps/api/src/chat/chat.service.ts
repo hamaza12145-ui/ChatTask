@@ -5,14 +5,15 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
-import { TenantConnectionService } from '../tenancy/tenant-connection.service';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, LessThan, MoreThan } from 'typeorm';
 import {
   Conversation,
   ConversationMember,
   Message,
   MessageReaction,
   User,
-} from '../tenant-entities';
+} from '../entities';
 import {
   CreateConversationDto,
   SendMessageDto,
@@ -22,16 +23,15 @@ import {
   MessageDeliveryStatus,
 } from '@saas/shared';
 import { uuidv7 } from 'uuidv7';
-import { LessThan, MoreThan } from 'typeorm';
 
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
 
-  constructor(private readonly tenantConnectionService: TenantConnectionService) {}
+  constructor(@InjectDataSource() private readonly ds: DataSource) {}
 
   async getUserConversations(userId: string): Promise<any[]> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const memberRepo = ds.getRepository(ConversationMember);
     const messageRepo = ds.getRepository(Message);
 
@@ -111,7 +111,7 @@ export class ChatService {
   }
 
   async createConversation(dto: CreateConversationDto, creatorId: string): Promise<Conversation> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const convRepo = ds.getRepository(Conversation);
     const memberRepo = ds.getRepository(ConversationMember);
 
@@ -170,7 +170,7 @@ export class ChatService {
     limit: number = 30,
     direction: 'before' | 'after' = 'before',
   ): Promise<{ messages: Message[]; nextCursor?: string; prevCursor?: string }> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const messageRepo = ds.getRepository(Message);
 
     const query = messageRepo
@@ -212,7 +212,7 @@ export class ChatService {
 
   // Send message (UUIDv7 client-generated or generated here for idempotency)
   async sendMessage(dto: SendMessageDto, senderId: string): Promise<Message> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const convRepo = ds.getRepository(Conversation);
     const memberRepo = ds.getRepository(ConversationMember);
     const messageRepo = ds.getRepository(Message);
@@ -268,7 +268,7 @@ export class ChatService {
   }
 
   async editMessage(messageId: string, dto: EditMessageDto, userId: string): Promise<Message> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const messageRepo = ds.getRepository(Message);
 
     const msg = await messageRepo.findOne({ where: { id: messageId } });
@@ -292,7 +292,7 @@ export class ChatService {
   }
 
   async deleteMessage(messageId: string, userId: string, forEveryone: boolean): Promise<void> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const messageRepo = ds.getRepository(Message);
 
     const msg = await messageRepo.findOne({ where: { id: messageId } });
@@ -309,15 +309,13 @@ export class ChatService {
       msg.attachments = [];
       await messageRepo.save(msg);
     } else {
-      // Delete for me
-      // Could maintain a deleted_for_users array or delete if 1:1
       msg.is_deleted = true;
       await messageRepo.save(msg);
     }
   }
 
   async markAsRead(conversationId: string, messageId: string, userId: string): Promise<void> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const memberRepo = ds.getRepository(ConversationMember);
 
     await memberRepo.update(
@@ -327,7 +325,7 @@ export class ChatService {
   }
 
   async searchMessages(query: string, userId: string): Promise<Message[]> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const messageRepo = ds.getRepository(Message);
 
     return messageRepo

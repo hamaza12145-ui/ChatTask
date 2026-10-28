@@ -27,13 +27,12 @@ export class S3StorageDriver implements IStorageDriver {
   }
 
   async getPresignedUploadUrl(
-    tenantId: string,
     filename: string,
     contentType: string,
   ): Promise<PresignedUploadResult> {
     const ext = path.extname(filename);
     const uniqueName = `${uuidv7()}${ext}`;
-    const key = `${tenantId}/${uniqueName}`;
+    const key = `attachments/${uniqueName}`;
 
     const command = new PutObjectCommand({
       Bucket: this.bucket,
@@ -55,14 +54,13 @@ export class S3StorageDriver implements IStorageDriver {
   }
 
   async saveFile(
-    tenantId: string,
     filename: string,
     buffer: Buffer,
     contentType: string,
   ): Promise<{ file_url: string; key: string; size: number }> {
     const ext = path.extname(filename);
     const uniqueName = `${uuidv7()}${ext}`;
-    const key = `${tenantId}/${uniqueName}`;
+    const key = `attachments/${uniqueName}`;
 
     await this.s3Client.send(
       new PutObjectCommand({
@@ -84,11 +82,7 @@ export class S3StorageDriver implements IStorageDriver {
     };
   }
 
-  async deleteFile(tenantId: string, key: string): Promise<void> {
-    if (!key.startsWith(`${tenantId}/`)) {
-      throw new Error('Tenant isolation violation: cannot delete file outside tenant namespace');
-    }
-
+  async deleteFile(key: string): Promise<void> {
     await this.s3Client.send(
       new DeleteObjectCommand({
         Bucket: this.bucket,
@@ -97,11 +91,7 @@ export class S3StorageDriver implements IStorageDriver {
     );
   }
 
-  async getFileStream(tenantId: string, key: string): Promise<{ stream: any; contentType: string; size: number }> {
-    if (!key.startsWith(`${tenantId}/`)) {
-      throw new Error('Tenant isolation violation: cannot access file outside tenant namespace');
-    }
-
+  async getFileStream(key: string): Promise<{ stream: any; contentType: string; size: number }> {
     const res = await this.s3Client.send(
       new GetObjectCommand({
         Bucket: this.bucket,

@@ -4,7 +4,6 @@ import {
   Body,
   UseGuards,
   Get,
-  Param,
   BadRequestException,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
@@ -15,7 +14,7 @@ import {
   InviteUserDto,
   UserRole,
 } from '@saas/shared';
-import { JwtTenantGuard } from '../common/guards/jwt-tenant.guard';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
@@ -41,20 +40,20 @@ export class AuthController {
   }
 
   @Post('logout')
-  @UseGuards(JwtTenantGuard)
+  @UseGuards(JwtAuthGuard)
   async logout(@CurrentUser() user: CurrentUserPayload) {
     await this.authService.logout(user.id);
     return { success: true, message: 'Logged out successfully' };
   }
 
   @Get('me')
-  @UseGuards(JwtTenantGuard)
+  @UseGuards(JwtAuthGuard)
   async getMe(@CurrentUser() user: CurrentUserPayload) {
     return user;
   }
 
   @Post('invite')
-  @UseGuards(JwtTenantGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.OWNER, UserRole.ADMIN)
   async invite(@Body() dto: InviteUserDto) {
     return this.authService.inviteUser(dto);

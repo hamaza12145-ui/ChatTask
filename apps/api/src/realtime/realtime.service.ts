@@ -7,8 +7,8 @@ export class RealtimeService implements OnModuleInit, OnModuleDestroy {
   private redisClient?: Redis;
   private readonly useRedis: boolean;
 
-  // In-Memory Storage (Zero-Redis Architecture)
-  private memorySockets = new Map<string, Set<string>>(); // `${tenantId}:user:${userId}` -> Set<socketId>
+  // In-Memory Storage
+  private memorySockets = new Map<string, Set<string>>(); // `user:${userId}` -> Set<socketId>
   private memoryPresence = new Map<string, { status: string; last_seen?: number }>();
   private memoryTyping = new Map<string, NodeJS.Timeout>(); // key -> timeout
 
@@ -37,7 +37,7 @@ export class RealtimeService implements OnModuleInit, OnModuleDestroy {
         this.redisClient = undefined;
       });
     } else {
-      this.logger.log('Running in Zero-Redis In-Memory mode (PostgreSQL-centric architecture)');
+      this.logger.log('Running in Zero-Redis In-Memory mode');
     }
   }
 
@@ -54,19 +54,14 @@ export class RealtimeService implements OnModuleInit, OnModuleDestroy {
     this.memoryPresence.clear();
   }
 
-  // Tenant-prefixed key generator
-  getKey(tenantId: string, key: string): string {
-    return `${tenantId}:${key}`;
-  }
-
   // Presence
-  async setUserOnline(tenantId: string, userId: string, socketId: string): Promise<void> {
+  async setUserOnline(userId: string, socketId: string): Promise<void> {
     if (this.redisClient) {
       try {
-        const key = this.getKey(tenantId, `user:${userId}:sockets`);
+        const key = `user:${userId}:sockets`;
         await this.redisClient.sadd(key, socketId);
-        await this.redisClient.set(this.getKey(tenantId, `user:${userId}:status`), 'online');
-        await this.redisClient.set(this.getKey(tenantId, `user:${userId}:last_seen`), Date.now().toString());
+        await this.redisClient.set(`user:${userId}:status`, 'online');
+        await this.redisClient.set(`user:${userId}:last_seen`, Date.now().toString());
         return;
       } catch (err: any) {
         this.logger.warn(`Redis error in setUserOnline: ${err.message}`);
@@ -74,7 +69,7 @@ export class RealtimeService implements OnModuleInit, OnModuleDestroy {
     }
 
     // In-Memory Fallback
-    const userKey = this.getKey(tenantId, `user:${userId}`);
+    const userKey = `user:${userId}`;
     if (!this.memorySockets.has(userKey)) {
       this.memorySockets.set(userKey, new Set<string>());
     }
@@ -82,15 +77,15 @@ export class RealtimeService implements OnModuleInit, OnModuleDestroy {
     this.memoryPresence.set(userKey, { status: 'online', last_seen: Date.now() });
   }
 
-  async setUserOffline(tenantId: string, userId: string, socketId: string): Promise<boolean> {
+  async setUserOffline(userId: string, socketId: string): Promise<boolean> {
     if (this.redisClient) {
       try {
-        const key = this.getKey(tenantId, `user:${userId}:sockets`);
+        const key = `user:${userId}:sockets`;
         await this.redisClient.srem(key, socketId);
         const remaining = await this.redisClient.scard(key);
         if (remaining === 0) {
-          await this.redisClient.set(this.getKey(tenantId, `user:${userId}:status`), 'offline');
-          await this.redisClient.set(this.getKey(tenantId, `user:${userId}:last_seen`), Date.now().toString());
+          await this.redisClient.set(`user:${userId}:status`, 'offline');
+          await this.redisClient.set(`user:${userId}:last_seen`, Date.now().toString());
           return true; // Completely offline
         }
         return false;
@@ -100,7 +95,7 @@ export class RealtimeService implements OnModuleInit, OnModuleDestroy {
     }
 
     // In-Memory Fallback
-    const userKey = this.getKey(tenantId, `user:${userId}`);
+    const userKey = `user:${userId}`;
     const socketSet = this.memorySockets.get(userKey);
     if (socketSet) {
       socketSet.delete(socketId);
@@ -113,11 +108,11 @@ export class RealtimeService implements OnModuleInit, OnModuleDestroy {
     return false;
   }
 
-  async getUserPresence(tenantId: string, userId: string): Promise<{ status: string; last_seen?: number }> {
+  async getUserPresence(userId: string): Promise<{ status: string; last_seen?: number }> {
     if (this.redisClient) {
       try {
-        const status = (await this.redisClient.get(this.getKey(tenantId, `user:${userId}:status`))) || 'offline';
-        const lastSeen = await this.redisClient.get(this.getKey(tenantId, `user:${userId}:last_seen`));
+        const status = (await this.redisClient.get(`user:${userId}:status`)) || 'offline';
+        const lastSeen = await this.redisClient.get(`user:${userId}:last_seen`);
         return {
           status,
           last_seen: lastSeen ? parseInt(lastSeen, 10) : undefined,
@@ -125,13 +120,13 @@ export class RealtimeService implements OnModuleInit, OnModuleDestroy {
       } catch {}
     }
 
-    const userKey = this.getKey(tenantId, `user:${userId}`);
+    const userKey = `user:${userId}`;
     return this.memoryPresence.get(userKey) || { status: 'offline' };
   }
 
   // Typing Indicators with 5-second TTL
-  async setTyping(tenantId: string, conversationId: string, userId: string): Promise<void> {
-    const key = this.getKey(tenantId, `typing:${conversationId}:${userId}`);
+  async setTyping(conversationId: string, userId: string): Promise<void> {
+    const key = `typing:${conversationId}:${userId}`;
 
     if (this.redisClient) {
       try {
@@ -153,8 +148,8 @@ export class RealtimeService implements OnModuleInit, OnModuleDestroy {
     this.memoryTyping.set(key, timer);
   }
 
-  async clearTyping(tenantId: string, conversationId: string, userId: string): Promise<void> {
-    const key = this.getKey(tenantId, `typing:${conversationId}:${userId}`);
+  async clearTyping(conversationId: string, userId: string): Promise<void> {
+    const key = `typing:${conversationId}:${userId}`;
 
     if (this.redisClient) {
       try {

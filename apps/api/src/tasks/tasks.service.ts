@@ -5,7 +5,6 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
-import { TenantConnectionService } from '../tenancy/tenant-connection.service';
 import {
   Task,
   TaskStatus,
@@ -19,7 +18,7 @@ import {
   User,
   Message,
   Conversation,
-} from '../tenant-entities';
+} from '../entities';
 import {
   CreateTaskDto,
   QuickCreateTaskDto,
@@ -39,21 +38,18 @@ import {
   NotificationType,
 } from '@saas/shared';
 import { uuidv7 } from 'uuidv7';
-import { In, LessThan } from 'typeorm';
-import { ClsService } from 'nestjs-cls';
+import { In, LessThan, DataSource } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
 
 @Injectable()
 export class TasksService {
   private readonly logger = new Logger(TasksService.name);
 
-  constructor(
-    private readonly tenantConnectionService: TenantConnectionService,
-    private readonly cls: ClsService,
-  ) {}
+  constructor(@InjectDataSource() private readonly ds: DataSource) {}
 
   // 6.1 & 6.2 Create Task (Standalone, Quick-create, or from Chat Message)
   async createTask(dto: CreateTaskDto, creatorId: string): Promise<Task> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const taskRepo = ds.getRepository(Task);
     const statusRepo = ds.getRepository(TaskStatus);
     const assigneeRepo = ds.getRepository(TaskAssignee);
@@ -179,7 +175,7 @@ export class TasksService {
       overdue_only?: boolean;
     },
   ): Promise<Task[]> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const taskRepo = ds.getRepository(Task);
 
     const qb = taskRepo
@@ -235,7 +231,7 @@ export class TasksService {
   }
 
   async getTaskById(taskId: string, currentUserId: string): Promise<Task> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const taskRepo = ds.getRepository(Task);
 
     const task = await taskRepo.findOne({
@@ -277,7 +273,7 @@ export class TasksService {
 
   // 6.3 Status Workflow & State Transitions
   async updateTaskStatus(taskId: string, targetStatusId: string, actorId: string): Promise<Task> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const taskRepo = ds.getRepository(Task);
     const statusRepo = ds.getRepository(TaskStatus);
 
@@ -364,7 +360,7 @@ export class TasksService {
 
   // 6.3 Submit Proof
   async submitProof(taskId: string, dto: SubmitTaskProofDto, actorId: string): Promise<Task> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const taskRepo = ds.getRepository(Task);
 
     const task = await this.getTaskById(taskId, actorId);
@@ -378,7 +374,7 @@ export class TasksService {
 
   // 6.3 Approve or Reject task
   async reviewApproval(taskId: string, dto: ReviewTaskApprovalDto, actorId: string): Promise<Task> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const taskRepo = ds.getRepository(Task);
     const statusRepo = ds.getRepository(TaskStatus);
 
@@ -426,7 +422,7 @@ export class TasksService {
     reason: string,
     actorId: string,
   ): Promise<Task> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const assigneeRepo = ds.getRepository(TaskAssignee);
 
     const task = await this.getTaskById(taskId, actorId);
@@ -456,7 +452,7 @@ export class TasksService {
 
   // 6.4 Due-Date Extension Request
   async requestExtension(taskId: string, dto: RequestExtensionDto, actorId: string): Promise<TaskExtensionRequest> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const extRepo = ds.getRepository(TaskExtensionRequest);
 
     const ext = await extRepo.save(
@@ -482,7 +478,7 @@ export class TasksService {
   }
 
   async reviewExtension(requestId: string, dto: ReviewExtensionDto, actorId: string): Promise<Task> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const extRepo = ds.getRepository(TaskExtensionRequest);
     const taskRepo = ds.getRepository(Task);
 
@@ -524,7 +520,7 @@ export class TasksService {
 
   // 6.4 Comments & Checklists
   async addComment(taskId: string, dto: CreateTaskCommentDto, actorId: string): Promise<TaskComment> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const commentRepo = ds.getRepository(TaskComment);
 
     const comment = await commentRepo.save(
@@ -541,7 +537,7 @@ export class TasksService {
   }
 
   async addChecklistItem(taskId: string, dto: CreateChecklistItemDto, actorId: string): Promise<TaskChecklist> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const repo = ds.getRepository(TaskChecklist);
     const count = await repo.count({ where: { task_id: taskId } });
 
@@ -558,7 +554,7 @@ export class TasksService {
   }
 
   async toggleChecklistItem(itemId: string, actorId: string): Promise<TaskChecklist> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     const repo = ds.getRepository(TaskChecklist);
     const item = await repo.findOne({ where: { id: itemId } });
     if (!item) {
@@ -583,7 +579,7 @@ export class TasksService {
 
   // Statuses management (Tenant Admin)
   async getTaskStatuses(): Promise<TaskStatus[]> {
-    const ds = await this.tenantConnectionService.getDataSourceForCurrentRequest();
+    const ds = this.ds;
     return ds.getRepository(TaskStatus).find({ order: { order: 'ASC' } });
   }
 
