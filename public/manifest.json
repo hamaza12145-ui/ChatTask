@@ -1,0 +1,18 @@
+{
+  "id": "/",
+  "name": "AlHasanain School System",
+  "short_name": "AlHasanain",
+  "description": "AlHasanain School System High School Staff Messenger and Task Management Portal",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#064e3b",
+  "theme_color": "#047857",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}
