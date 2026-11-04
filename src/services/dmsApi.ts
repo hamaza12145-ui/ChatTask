@@ -218,6 +218,10 @@ class DmsApiService {
     return this.token;
   }
 
+  public isLoggedIn(): boolean {
+    return Boolean(this.token);
+  }
+
   public setToken(token: string | null, email?: string) {
     this.token = token;
     if (typeof window !== 'undefined') {
@@ -229,6 +233,34 @@ class DmsApiService {
       if (email) {
         this.currentEmail = email;
         localStorage.setItem('dms_user_email', email);
+      } else if (token === null) {
+        this.currentEmail = null;
+        localStorage.removeItem('dms_user_email');
+      }
+    }
+  }
+
+  /**
+   * Logout from DMS and clear all session data
+   */
+  async logout(): Promise<void> {
+    try {
+      if (this.token) {
+        await fetch(`${DMS_BASE_URL}/auth/logout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.token}`,
+          },
+        }).catch(() => {});
+      }
+    } finally {
+      this.setToken(null, undefined);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('dms_token');
+        localStorage.removeItem('dms_user_email');
+        localStorage.removeItem('dmstask_persisted_user_id');
+        localStorage.removeItem('dmstask_is_authenticated');
       }
     }
   }
@@ -264,17 +296,20 @@ class DmsApiService {
    * Ensure the API client is authenticated.
    * If a specific user email is requested, login as that user.
    */
-  async ensureAuthenticated(preferredEmail: string = 'admin@example.com'): Promise<string> {
-    if (this.token && this.currentEmail === preferredEmail) {
-      return this.token;
+  async ensureAuthenticated(preferredEmail?: string): Promise<string> {
+    if (this.token) {
+      if (!preferredEmail || this.currentEmail === preferredEmail) {
+        return this.token;
+      }
     }
 
+    const targetEmail = preferredEmail || this.currentEmail || 'admin@example.com';
     try {
-      const { token } = await this.login(preferredEmail);
+      const { token } = await this.login(targetEmail);
       return token;
     } catch {
       // Fallback to admin login
-      if (preferredEmail !== 'admin@example.com') {
+      if (targetEmail !== 'admin@example.com') {
         const { token } = await this.login('admin@example.com');
         return token;
       }

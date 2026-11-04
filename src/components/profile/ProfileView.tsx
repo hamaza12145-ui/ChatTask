@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { formatDepartmentName } from '../../services/dmsApi';
 import {
@@ -14,13 +14,19 @@ import {
   AlertCircle,
   Users,
   IdCard,
+  LogOut,
+  RefreshCw,
+  Building2,
+  Key,
+  ShieldAlert,
 } from 'lucide-react';
 
 export const ProfileView: React.FC = () => {
   const {
     currentUser,
-    users,
-    setCurrentUserId,
+    logout,
+    refreshDmsData,
+    isLoadingDms,
     isDark,
     toggleTheme,
     tasks,
@@ -28,13 +34,20 @@ export const ProfileView: React.FC = () => {
     isDmsConnected,
   } = useAppStore();
 
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
   const myTasks = tasks.filter((t) => t.assigneeIds.includes(currentUser.id));
   const completedTasks = myTasks.filter((t) => t.status === 'completed');
   const inProgressTasks = myTasks.filter((t) => t.status === 'in_progress');
   const reviewTasks = tasks.filter((t) => t.creatorId === currentUser.id && t.status === 'under_review');
 
-  const handleSwitchUser = async (userId: string) => {
-    await setCurrentUserId(userId);
+  const handleLogout = async () => {
+    try {
+      setIsLoggingOut(true);
+      await logout();
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   return (
@@ -54,9 +67,9 @@ export const ProfileView: React.FC = () => {
                 <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 truncate">
                   {currentUser.name}
                 </h2>
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" title="DMS Active Online" />
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" title="Active Online" />
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
-                  DMS #{currentUser.id}
+                  ERP #{currentUser.id}
                 </span>
               </div>
 
@@ -127,92 +140,105 @@ export const ProfileView: React.FC = () => {
         </div>
       </div>
 
-      {/* Profile Details & Persona Switcher */}
+      {/* Account Details & Session Management */}
       <div className="max-w-2xl mx-auto w-full p-6 space-y-6">
-        {/* DMS Integration Card */}
-        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs space-y-3">
+        {/* Account Information Card */}
+        <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <IdCard className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider">
+                Authenticated Account Information
+              </h3>
+            </div>
+            <button
+              onClick={() => refreshDmsData()}
+              disabled={isLoadingDms}
+              className="text-xs text-slate-400 hover:text-emerald-600 flex items-center gap-1 cursor-pointer font-medium"
+              title="Resync profile from ERP API"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingDms ? 'animate-spin text-emerald-600' : ''}`} />
+              <span>{isLoadingDms ? 'Syncing...' : 'Sync Profile'}</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+              <span className="text-[10px] text-slate-400 block font-medium">Full Name</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-200 text-sm">{currentUser.name}</span>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+              <span className="text-[10px] text-slate-400 block font-medium">Official Email</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-200">{currentUser.email || 'None'}</span>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+              <span className="text-[10px] text-slate-400 block font-medium">Designation / Role</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-200">{currentUser.designation}</span>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+              <span className="text-[10px] text-slate-400 block font-medium">Department</span>
+              <span className="font-semibold text-emerald-700 dark:text-emerald-400">{formatDepartmentName(currentUser.department)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* DMS Core Integration Card */}
+        <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Shield className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider">
-                DMS Core Integration Status
+                ERP-Task Core Integration Status
               </h3>
             </div>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               Connected &amp; Synced
             </span>
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-xs">
-            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-800">
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
               <span className="text-[10px] text-slate-400 block">Single Source of Truth</span>
-              <span className="font-semibold text-slate-800 dark:text-slate-200">DMS REST APIs</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-200">ERP-Task REST APIs</span>
             </div>
-            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-800">
-              <span className="text-[10px] text-slate-400 block">Total Synchronized Users</span>
-              <span className="font-semibold text-slate-800 dark:text-slate-200 font-mono">{users.length} users</span>
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+              <span className="text-[10px] text-slate-400 block">Database Storage</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-200 font-mono">task_db (PostgreSQL)</span>
             </div>
-            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-800">
-              <span className="text-[10px] text-slate-400 block">Total DMS Tasks</span>
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+              <span className="text-[10px] text-slate-400 block">Active Tasks In Scope</span>
               <span className="font-semibold text-slate-800 dark:text-slate-200 font-mono">{tasks.length} tasks</span>
             </div>
-            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-800">
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
               <span className="text-[10px] text-slate-400 block">Authentication Mode</span>
-              <span className="font-semibold text-slate-800 dark:text-slate-200">JWT Bearer Token</span>
+              <span className="font-semibold text-emerald-700 dark:text-emerald-400">JWT Bearer Session</span>
             </div>
           </div>
         </div>
 
-        {/* Persona Switcher Section */}
-        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs space-y-3">
-          <div className="flex items-center gap-2">
-            <Users className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider">
-              Switch DMS User Persona
+        {/* Clear & Visible Logout Section */}
+        <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-rose-200/80 dark:border-rose-900/50 shadow-2xs space-y-4">
+          <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
+            <LogOut className="w-4 h-4" />
+            <h3 className="text-xs font-bold uppercase tracking-wider">
+              Account Session Management
             </h3>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Select any registered DMS user account to test cross-departmental communication and tasking permissions:
+
+          <p className="text-xs text-slate-600 dark:text-slate-400">
+            Sign out to securely close your active session on this device. You will be redirected to the sign-in screen.
           </p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {users.map((u) => {
-              const isSelected = u.id === currentUser.id;
-              return (
-                <button
-                  key={u.id}
-                  onClick={() => handleSwitchUser(u.id)}
-                  className={`flex items-center justify-between p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                    isSelected
-                      ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 shadow-xs'
-                      : 'bg-slate-50/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-800'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div
-                      className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-white text-xs shrink-0 ${u.avatarBg}`}
-                    >
-                      {u.avatar}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
-                        {u.name}
-                      </p>
-                      <p className="text-[10px] text-slate-400 truncate">
-                        {formatDepartmentName(u.department)}
-                      </p>
-                    </div>
-                  </div>
-                  {isSelected && (
-                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950 px-2 py-0.5 rounded-full shrink-0">
-                      Active
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={isLoggingOut}
+            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 dark:bg-rose-600 dark:hover:bg-rose-500 text-white font-bold text-xs shadow-md shadow-rose-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>{isLoggingOut ? 'Signing Out...' : 'Sign Out of Account'}</span>
+          </button>
         </div>
       </div>
     </div>

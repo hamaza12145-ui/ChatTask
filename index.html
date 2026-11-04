@@ -3,24 +3,31 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>AlHasanain School System - High School Communication &amp; Task Management</title>
-    <meta name="description" content="Integrated communication and task management platform for AlHasanain School System High School administration, faculty, and departments." />
-    <meta property="og:title" content="AlHasanain School System - High School Communication &amp; Task Management" />
-    <meta property="og:description" content="Integrated communication and task management platform for AlHasanain School System High School administration, faculty, and departments." />
-    <meta property="og:type" content="website" />
+    <title>MTJF ChatTask - Enterprise Communication &amp; Task Management</title>
+    <meta name="description" content="Integrated communication and task management platform for MTJF ERP-Task." />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="AlHasanain" />
     <meta name="theme-color" content="#047857" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script>
+      (function() {
+        try {
+          var saved = localStorage.getItem('theme');
+          if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

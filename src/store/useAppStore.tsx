@@ -138,6 +138,11 @@ interface AppStoreContextType {
   // Helper actions
   navigateToMessage: (chatId: string, messageId: string) => void;
   navigateToTask: (taskId: string) => void;
+
+  // Authentication & Session
+  isAuthenticated: boolean;
+  login: (email: string, password?: string) => Promise<boolean>;
+  logout: () => Promise<void>;
 }
 
 const AppStoreContext = createContext<AppStoreContextType | null>(null);
@@ -158,8 +163,11 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   // Theme state
   const [isDark, setIsDark] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('theme') === 'dark' ||
-        window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const savedTheme = localStorage.getItem('theme');
+      if (savedTheme) {
+        return savedTheme === 'dark';
+      }
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
     }
     return false;
   });
@@ -188,6 +196,14 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   });
   const [isLoadingDms, setIsLoadingDms] = useState<boolean>(true);
   const [isDmsConnected, setIsDmsConnected] = useState<boolean>(false);
+
+  // Authentication & session state
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return Boolean(localStorage.getItem('dms_token'));
+    }
+    return false;
+  });
 
   // Active user resolver
   const currentUser = users.find((u) => u.id === currentUserId) || users[0] || INITIAL_ADMIN_USER;
@@ -350,8 +366,19 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   const refreshDmsData = useCallback(async () => {
     try {
       setIsLoadingDms(true);
+
+      // Check if user has an active session token
+      const currentToken = dmsApi.getToken();
+      if (!currentToken) {
+        setIsDmsConnected(false);
+        setIsLoadingDms(false);
+        setIsAuthenticated(false);
+        return;
+      }
+
       // Ensure authenticated with DMS
       await dmsApi.ensureAuthenticated();
+      setIsAuthenticated(true);
 
       // Fetch Users, Tasks, Conversations, Messages, and Notifications concurrently from ERP-Task backend
       const [fetchedUsers, fetchedTasks, fetchedConversations, fetchedMessages, fetchedNotifications] = await Promise.all([
@@ -364,6 +391,18 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
       if (fetchedUsers.length > 0) {
         setUsers(fetchedUsers);
+        // Ensure currentUserId points to the actual logged-in user if email is matched
+        if (dmsApi.currentEmail) {
+          const matched = fetchedUsers.find(
+            (u) => u.email.toLowerCase() === dmsApi.currentEmail?.toLowerCase()
+          );
+          if (matched && matched.id !== currentUserId) {
+            setLocalCurrentUserId(matched.id);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('dmstask_persisted_user_id', matched.id);
+            }
+          }
+        }
       }
 
       if (fetchedTasks.length > 0) {
@@ -408,6 +447,9 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     } catch (err: any) {
       console.warn('DMS API sync warning:', err?.message);
       setIsDmsConnected(false);
+      if (err?.message?.includes('401') || err?.message?.includes('Unauthorized')) {
+        setIsAuthenticated(false);
+      }
       addToast(`DMS API Notice: ${err?.message || 'Connecting to DMS backend...'}`, 'warning');
     } finally {
       setIsLoadingDms(false);
@@ -418,6 +460,47 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   useEffect(() => {
     refreshDmsData();
   }, [refreshDmsData]);
+
+  // Explicit Login action
+  const login = useCallback(
+    async (email: string, password?: string): Promise<boolean> => {
+      try {
+        setIsLoadingDms(true);
+        const { token, user: loggedUser } = await dmsApi.login(email, password);
+        setIsAuthenticated(true);
+        const uid = String(loggedUser.id || '5');
+        setLocalCurrentUserId(uid);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('dmstask_persisted_user_id', uid);
+          localStorage.setItem('dmstask_is_authenticated', 'true');
+        }
+        await refreshDmsData();
+        addToast(`Welcome back, ${loggedUser.name || 'User'}!`, 'success');
+        return true;
+      } catch (err: any) {
+        addToast(err?.message || 'Login failed. Please check your credentials.', 'warning');
+        throw err;
+      } finally {
+        setIsLoadingDms(false);
+      }
+    },
+    [refreshDmsData, addToast]
+  );
+
+  // Explicit Logout action
+  const logout = useCallback(async () => {
+    try {
+      await dmsApi.logout();
+    } finally {
+      setIsAuthenticated(false);
+      setLocalCurrentUserId('');
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('dmstask_persisted_user_id');
+        localStorage.removeItem('dmstask_is_authenticated');
+      }
+      addToast('Signed out of account.', 'info');
+    }
+  }, [addToast]);
 
   // Switch persona & authenticate as selected DMS user
   const setCurrentUserId = useCallback(
@@ -1257,6 +1340,9 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         setDeviceView,
         navigateToMessage,
         navigateToTask,
+        isAuthenticated,
+        login,
+        logout,
       }}
     >
       {children}

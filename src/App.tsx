@@ -20,6 +20,7 @@ import { TasksBoard } from './components/tasks/TasksBoard';
 import { NotificationsList } from './components/notifications/NotificationsList';
 import { ProfileView } from './components/profile/ProfileView';
 import { MobileDeviceFrame } from './components/mobile/MobileDeviceFrame';
+import { LoginView } from './components/auth/LoginView';
 
 const WorkspaceContent: React.FC = () => {
   const {
@@ -105,7 +106,16 @@ const WorkspaceContent: React.FC = () => {
 };
 
 const MainAppContent: React.FC = () => {
-  const { deviceView } = useAppStore();
+  const { deviceView, isAuthenticated } = useAppStore();
+
+  if (!isAuthenticated) {
+    return (
+      <div className="h-screen w-screen overflow-auto bg-slate-100 dark:bg-slate-950 font-sans">
+        <LoginView />
+        <ToastContainer />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 antialiased font-sans">
