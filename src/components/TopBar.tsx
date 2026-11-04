@@ -11,6 +11,7 @@ import {
   Smartphone,
   Monitor,
   Maximize2,
+  RefreshCw,
 } from 'lucide-react';
 
 export const TopBar: React.FC = () => {
@@ -24,6 +25,9 @@ export const TopBar: React.FC = () => {
     activeChatId,
     deviceView,
     setDeviceView,
+    refreshDmsData,
+    isLoadingDms,
+    isDmsConnected,
   } = useAppStore();
 
   return (
@@ -32,14 +36,14 @@ export const TopBar: React.FC = () => {
       <div className="flex items-center gap-3 shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-emerald-700 flex items-center justify-center text-white shadow-xs font-black text-xs tracking-tighter">
-            AH
+            DMS
           </div>
           <div className="flex flex-col">
             <span className="text-sm sm:text-base font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap leading-tight">
-              AlHasanain School System
+              DMS Communication
             </span>
             <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold tracking-wide uppercase leading-none">
-              High School &amp; Junior Wings
+              Tasking Module Integration
             </span>
           </div>
         </div>
@@ -48,9 +52,9 @@ export const TopBar: React.FC = () => {
         <nav className="hidden lg:flex items-center gap-1 ml-4 bg-slate-100/80 dark:bg-slate-800/80 p-1 rounded-lg">
           <button
             onClick={() => setActiveMobileTab('chats')}
-            className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap shrink-0 ${
+            className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap shrink-0 cursor-pointer ${
               activeMobileTab === 'chats'
-                ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
@@ -59,9 +63,9 @@ export const TopBar: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveMobileTab('tasks')}
-            className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap shrink-0 ${
+            className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap shrink-0 cursor-pointer ${
               activeMobileTab === 'tasks'
-                ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
@@ -70,9 +74,9 @@ export const TopBar: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveMobileTab('notifications')}
-            className={`relative flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap shrink-0 ${
+            className={`relative flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap shrink-0 cursor-pointer ${
               activeMobileTab === 'notifications'
-                ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
@@ -87,69 +91,68 @@ export const TopBar: React.FC = () => {
         </nav>
       </div>
 
-      {/* Zone 3: Actions, Device View Switcher & Persona */}
+      {/* Zone 2: Device Mode Switcher, DMS Sync & Persona */}
       <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-        {/* Prominent Device Mode Switcher */}
+        {/* Device Mode Switcher */}
         <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs">
           <button
             onClick={() => setDeviceView('mobile')}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
               deviceView === 'mobile'
                 ? 'bg-emerald-600 text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
             }`}
-            title="Switch to Mobile Phone Simulator"
+            title="Mobile phone layout"
           >
             <Smartphone className="w-3.5 h-3.5" />
-            <span className="text-[11px]">Mobile</span>
+            <span className="hidden sm:inline">Mobile</span>
           </button>
           <button
             onClick={() => setDeviceView('desktop')}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
               deviceView === 'desktop'
-                ? 'bg-indigo-600 text-white shadow-xs'
+                ? 'bg-emerald-600 text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
             }`}
-            title="Switch to Desktop 3-Column Split View"
+            title="Desktop split view"
           >
             <Monitor className="w-3.5 h-3.5" />
-            <span className="text-[11px] hidden sm:inline">Desktop</span>
+            <span className="hidden sm:inline">Desktop</span>
           </button>
           <button
             onClick={() => setDeviceView('responsive')}
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-all ${
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
               deviceView === 'responsive'
-                ? 'bg-slate-700 text-white shadow-xs'
-                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
             }`}
-            title="Fluid Auto Responsive"
+            title="Auto responsive viewport"
           >
             <Maximize2 className="w-3.5 h-3.5" />
-            <span className="text-[11px] hidden md:inline">Auto</span>
+            <span className="hidden sm:inline">Auto</span>
           </button>
         </div>
 
-        {/* Quick New Task Button */}
+        {/* Quick Task CTA */}
         <button
           onClick={() => openCreateTaskModal({ sourceChatId: activeChatId || undefined })}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition-colors whitespace-nowrap shrink-0"
-          title="Create a new task"
+          className="hidden sm:flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-colors shrink-0 cursor-pointer"
         >
           <PlusCircle className="w-3.5 h-3.5" />
-          <span className="hidden md:inline">New Task</span>
+          <span>New DMS Task</span>
         </button>
 
-        {/* User Switcher Dropdown */}
-        <UserSwitcher />
-
-        {/* Light/Dark Toggle */}
+        {/* Theme Toggle */}
         <button
           onClick={toggleTheme}
-          aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
-          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
+          className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+          title="Toggle light / dark mode"
         >
-          {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
+          {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
         </button>
+
+        {/* User Persona Switcher */}
+        <UserSwitcher />
       </div>
     </header>
   );

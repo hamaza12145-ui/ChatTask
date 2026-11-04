@@ -13,13 +13,8 @@ import {
   TaskAttachment,
   DeviceView,
 } from '../types';
-import {
-  SEED_USERS,
-  SEED_TASKS,
-  SEED_CHATS,
-  SEED_MESSAGES,
-  SEED_NOTIFICATIONS,
-} from '../data/seedData';
+// SEED data completely removed - ERP-Task APIs and PostgreSQL database are the single source of truth.
+import { dmsApi, DMS_CREDENTIALS, getDepartmentMeta } from '../services/dmsApi';
 
 interface Toast {
   id: string;
@@ -28,18 +23,22 @@ interface Toast {
 }
 
 interface AppStoreContextType {
-  // Current user & Users
+  // Current user & Users (Fetched from DMS)
   currentUser: User;
   users: User[];
   setCurrentUserId: (userId: string) => void;
   getUserById: (userId: string) => User | undefined;
+  isLoadingDms: boolean;
+  isDmsConnected: boolean;
+  refreshDmsData: () => Promise<void>;
 
   // Chats
   chats: Chat[];
   activeChatId: string | null;
   activeChat: Chat | null;
   setActiveChatId: (chatId: string | null) => void;
-  createChat: (data: { name: string; type: 'direct' | 'group'; participantIds: string[]; department?: Department }) => string;
+  createChat: (data: { name: string; type: 'direct' | 'group' | 'channel'; participantIds: string[]; department?: Department }) => string;
+  openTaskChat: (taskId: string) => void;
 
   // Messages
   messages: ChatMessage[];
@@ -65,7 +64,7 @@ interface AppStoreContextType {
   // Typing simulator
   typingStatus: Record<string, string>; // chatId -> userName who is typing
 
-  // Tasks
+  // Tasks (Fetched from DMS)
   tasks: Task[];
   activeTaskId: string | null;
   activeTask: Task | null;
@@ -85,13 +84,13 @@ interface AppStoreContextType {
     sourceChatId?: string;
     sourceMessageId?: string;
     attachments?: TaskAttachment[];
-  }) => Task;
-  updateTaskStatus: (taskId: string, newStatus: TaskStatus) => void;
+  }) => Promise<Task>;
+  updateTaskStatus: (taskId: string, newStatus: TaskStatus) => Promise<void>;
   submitProof: (taskId: string, photoUrl: string, note: string) => void;
   approveTask: (taskId: string) => void;
   rejectTask: (taskId: string, reason: string) => void;
   toggleChecklistItem: (taskId: string, itemId: string) => void;
-  addCommentToTask: (taskId: string, text: string) => void;
+  addCommentToTask: (taskId: string, text: string) => Promise<void>;
   getTaskById: (taskId: string) => Task | undefined;
 
   // Modals & Panels
@@ -143,6 +142,18 @@ interface AppStoreContextType {
 
 const AppStoreContext = createContext<AppStoreContextType | null>(null);
 
+// Fallback initial admin user while DMS is syncing
+const INITIAL_ADMIN_USER: User = {
+  id: '5',
+  name: 'Admin',
+  designation: 'System Administrator',
+  department: 'admin',
+  avatar: 'AD',
+  avatarBg: 'bg-slate-700',
+  status: 'online',
+  email: 'admin@example.com',
+};
+
 export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // Theme state
   const [isDark, setIsDark] = useState<boolean>(() => {
@@ -167,33 +178,82 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     setIsDark((prev) => !prev);
   }, []);
 
-  // Users state
-  const [users] = useState<User[]>(SEED_USERS);
-  const [currentUserId, setCurrentUserId] = useState<string>('user_rahat');
+  // DMS Users & Connection state
+  const [users, setUsers] = useState<User[]>([INITIAL_ADMIN_USER]);
+  const [currentUserId, setLocalCurrentUserId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('dmstask_persisted_user_id') || '5';
+    }
+    return '5';
+  });
+  const [isLoadingDms, setIsLoadingDms] = useState<boolean>(true);
+  const [isDmsConnected, setIsDmsConnected] = useState<boolean>(false);
 
-  const currentUser = users.find((u) => u.id === currentUserId) || users[0];
-  const getUserById = useCallback((userId: string) => users.find((u) => u.id === userId), [users]);
+  // Active user resolver
+  const currentUser = users.find((u) => u.id === currentUserId) || users[0] || INITIAL_ADMIN_USER;
+  const getUserById = useCallback((userId: string) => users.find((u) => u.id === String(userId)), [users]);
 
-  // Chats state
-  const [chats, setChats] = useState<Chat[]>(SEED_CHATS);
-  const [activeChatId, setActiveChatId] = useState<string | null>(null);
-  const activeChat = chats.find((c) => c.id === activeChatId) || null;
+  // Tasks state (Fetched from DMS)
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState<boolean>(false);
+  const activeTask = tasks.find((t) => t.id === activeTaskId) || null;
+  const getTaskById = useCallback((taskId: string) => tasks.find((t) => t.id === String(taskId)), [tasks]);
 
-  // Messages state
-  const [messages, setMessages] = useState<ChatMessage[]>(SEED_MESSAGES);
+  // Chats state - Persistent from ERP-Task database + local storage cache
+  const [chats, setChats] = useState<Chat[]>(() => {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('dmstask_persisted_chats');
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch {}
+      }
+    }
+    return [];
+  });
+
+  const [activeChatId, setActiveChatIdState] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('dmstask_persisted_active_chat_id') || 'chat_dept_program';
+    }
+    return 'chat_dept_program';
+  });
+
+  const setActiveChatId = useCallback((chatId: string | null) => {
+    setActiveChatIdState(chatId);
+    if (typeof window !== 'undefined') {
+      if (chatId) {
+        localStorage.setItem('dmstask_persisted_active_chat_id', chatId);
+      } else {
+        localStorage.removeItem('dmstask_persisted_active_chat_id');
+      }
+    }
+  }, []);
+
+  const activeChat = chats.find((c) => c.id === activeChatId) || (chats.length > 0 ? chats[0] : null);
+
+  // Messages state - Persistent from ERP-Task database + local storage cache
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('dmstask_persisted_messages');
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch {}
+      }
+    }
+    return [];
+  });
+
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [replyMessage, setReplyMessage] = useState<QuotedMessage | null>(null);
   const [taskQuoteForComposer, setTaskQuoteForComposer] = useState<Task | null>(null);
 
   // Typing simulator state
   const [typingStatus, setTypingStatus] = useState<Record<string, string>>({});
-
-  // Tasks state
-  const [tasks, setTasks] = useState<Task[]>(SEED_TASKS);
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
-  const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState<boolean>(false);
-  const activeTask = tasks.find((t) => t.id === activeTaskId) || null;
-  const getTaskById = useCallback((taskId: string) => tasks.find((t) => t.id === taskId), [tasks]);
 
   // Modals state
   const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
@@ -208,8 +268,44 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [activeMobileTab, setActiveMobileTab] = useState<ActiveTab>('chats');
   const [deviceView, setDeviceView] = useState<DeviceView>('responsive');
 
-  // Notifications
-  const [notifications, setNotifications] = useState<AppNotification[]>(SEED_NOTIFICATIONS);
+  // Notifications - persistent
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('dmstask_persisted_notifications');
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed)) return parsed;
+        } catch {}
+      }
+    }
+    return [];
+  });
+
+  // Local storage synchronization effects for persistent offline-first cache
+  useEffect(() => {
+    if (typeof window !== 'undefined' && chats.length > 0) {
+      localStorage.setItem('dmstask_persisted_chats', JSON.stringify(chats));
+    }
+  }, [chats]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && messages.length > 0) {
+      localStorage.setItem('dmstask_persisted_messages', JSON.stringify(messages));
+    }
+  }, [messages]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('dmstask_persisted_notifications', JSON.stringify(notifications));
+    }
+  }, [notifications]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('dmstask_persisted_user_id', currentUserId);
+    }
+  }, [currentUserId]);
 
   // Toasts
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -237,18 +333,113 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, read: true } : n))
     );
+    dmsApi.markNotificationRead(id).catch(() => {});
   }, []);
 
   const markAllNotificationsRead = useCallback(() => {
     setNotifications((prev) =>
       prev.map((n) => (n.recipientId === currentUserId ? { ...n, read: true } : n))
     );
+    dmsApi.markAllNotificationsRead(currentUserId).catch(() => {});
     addToast('All notifications marked as read', 'info');
   }, [currentUserId, addToast]);
 
+  // ========================================================
+  // ERP-TASK & DMS SYNCHRONIZATION: USERS, TASKS, CHATS, MESSAGES, NOTIFICATIONS
+  // ========================================================
+  const refreshDmsData = useCallback(async () => {
+    try {
+      setIsLoadingDms(true);
+      // Ensure authenticated with DMS
+      await dmsApi.ensureAuthenticated();
+
+      // Fetch Users, Tasks, Conversations, Messages, and Notifications concurrently from ERP-Task backend
+      const [fetchedUsers, fetchedTasks, fetchedConversations, fetchedMessages, fetchedNotifications] = await Promise.all([
+        dmsApi.fetchUsers(),
+        dmsApi.fetchTasks(),
+        dmsApi.fetchConversations(),
+        dmsApi.fetchMessages(),
+        dmsApi.fetchNotifications(currentUserId),
+      ]);
+
+      if (fetchedUsers.length > 0) {
+        setUsers(fetchedUsers);
+      }
+
+      if (fetchedTasks.length > 0) {
+        setTasks(fetchedTasks);
+      }
+
+      if (fetchedConversations.length > 0) {
+        // Synchronize departmental channels with actual DMS users
+        const syncedChats = fetchedConversations.map((c) => {
+          if (c.type === 'channel' && c.department && fetchedUsers.length > 0) {
+            const deptUserIds = fetchedUsers
+              .filter((u) => u.department?.toLowerCase() === c.department?.toLowerCase())
+              .map((u) => u.id);
+            const adminUser = fetchedUsers.find((u) => u.department === 'admin');
+            const allParticipants = [
+              ...new Set([...c.participantIds, ...deptUserIds, adminUser?.id].filter(Boolean) as string[]),
+            ];
+            return { ...c, participantIds: allParticipants };
+          }
+          return c;
+        });
+        setChats(syncedChats);
+
+        // Ensure activeChatId points to a valid conversation
+        setActiveChatIdState((prev) => {
+          if (prev && syncedChats.some((c) => c.id === prev)) {
+            return prev;
+          }
+          return syncedChats[0]?.id || 'chat_dept_program';
+        });
+      }
+
+      if (fetchedMessages.length > 0) {
+        setMessages(fetchedMessages);
+      }
+
+      if (fetchedNotifications && fetchedNotifications.length > 0) {
+        setNotifications(fetchedNotifications);
+      }
+
+      setIsDmsConnected(true);
+    } catch (err: any) {
+      console.warn('DMS API sync warning:', err?.message);
+      setIsDmsConnected(false);
+      addToast(`DMS API Notice: ${err?.message || 'Connecting to DMS backend...'}`, 'warning');
+    } finally {
+      setIsLoadingDms(false);
+    }
+  }, [currentUserId, addToast]);
+
+  // Initial load on mount
+  useEffect(() => {
+    refreshDmsData();
+  }, [refreshDmsData]);
+
+  // Switch persona & authenticate as selected DMS user
+  const setCurrentUserId = useCallback(
+    async (userId: string) => {
+      setLocalCurrentUserId(userId);
+      const targetUser = users.find((u) => u.id === userId);
+      if (targetUser && targetUser.email) {
+        try {
+          await dmsApi.login(targetUser.email);
+          addToast(`Active persona: ${targetUser.name} (${targetUser.designation})`, 'info');
+        } catch {
+          // If login fails, keep current token
+          addToast(`Switched view to ${targetUser.name}`, 'info');
+        }
+      }
+    },
+    [users, addToast]
+  );
+
   // Task Drawer open/close
   const openTaskDrawer = useCallback((taskId: string) => {
-    setActiveTaskId(taskId);
+    setActiveTaskId(String(taskId));
     setIsTaskDrawerOpen(true);
   }, []);
 
@@ -267,7 +458,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, []);
 
   const openProofModal = useCallback((taskId: string) => {
-    setProofModalTaskId(taskId);
+    setProofModalTaskId(String(taskId));
     setIsProofModalOpen(true);
   }, []);
 
@@ -276,87 +467,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     setProofModalTaskId(null);
   }, []);
 
-  // Plausible bot auto-reply simulator
-  const triggerAutoReply = useCallback((chatId: string, userText: string) => {
-    const chat = chats.find((c) => c.id === chatId);
-    if (!chat || chat.isReadOnly) return;
-
-    // Pick a responding user who is not the currentUser
-    const potentialResponders = chat.participantIds.filter((id) => id !== currentUserId);
-    if (potentialResponders.length === 0) return;
-    const responderId = potentialResponders[Math.floor(Math.random() * potentialResponders.length)];
-    const responder = users.find((u) => u.id === responderId);
-    if (!responder) return;
-
-    // After 2.5s, show typing indicator
-    const typingTimeout = setTimeout(() => {
-      setTypingStatus((prev) => ({ ...prev, [chatId]: responder.name }));
-
-      // After 2.5s more, send reply
-      const replyTimeout = setTimeout(() => {
-        setTypingStatus((prev) => {
-          const updated = { ...prev };
-          delete updated[chatId];
-          return updated;
-        });
-
-        const replies = [
-          `Ji Madam, bilkul note kar liya hai. Main abhi file check kar ke update karti hoon.`,
-          `Walaikum Assalam Ma'am, details review kar ke task card update kar rahi hoon. جزاک اللہ!`,
-          `Understood Headmistress Ma'am! Added this to my active task queue.`,
-          `Ji Ma'am, work in progress hai. Short update task details mein submit kar rahi hoon.`,
-          `Thanks for the guidance, Ma'am! Main abhi office se verify karwati hoon.`,
-        ];
-
-        let replyText = replies[Math.floor(Math.random() * replies.length)];
-        if (
-          userText.toLowerCase().includes('task') ||
-          userText.toLowerCase().includes('ticket') ||
-          userText.toLowerCase().includes('kaam')
-        ) {
-          replyText = `Understood Ma'am! I'll update progress directly on the task card.`;
-        }
-
-        const replyMsgId = 'msg_reply_' + Date.now();
-        const now = new Date().toISOString();
-
-        const autoMsg: ChatMessage = {
-          id: replyMsgId,
-          chatId,
-          senderId: responder.id,
-          text: replyText,
-          type: 'text',
-          timestamp: now,
-          status: 'read',
-        };
-
-        setMessages((prev) => [...prev, autoMsg]);
-
-        // Update last message in chat
-        setChats((prev) =>
-          prev.map((c) =>
-            c.id === chatId
-              ? {
-                  ...c,
-                  lastMessage: {
-                    text: replyText,
-                    timestamp: now,
-                    senderId: responder.id,
-                    type: 'text',
-                  },
-                }
-              : c
-          )
-        );
-      }, 2500);
-
-      return () => clearTimeout(replyTimeout);
-    }, 2000);
-
-    return () => clearTimeout(typingTimeout);
-  }, [chats, currentUserId, currentUser, users]);
-
-  // Send message action
+  // Send message action (normal user messaging without automated replies)
   const sendMessage = useCallback(
     (
       chatId: string,
@@ -380,7 +491,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         type = options.attachment.type === 'image' ? 'image' : 'document';
       }
 
-      // Check for mentions like @Sarah or @Ali
+      // Check for mentions like @Raza or @Admin
       const mentionedUserIds: string[] = [];
       users.forEach((u) => {
         if (text.includes(`@${u.name}`) || text.includes(`@${u.name.split(' ')[0]}`)) {
@@ -399,10 +510,11 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         replyTo: options?.replyTo,
         attachment: options?.attachment,
         voiceDuration: options?.voiceDuration,
-        taskId: options?.taskId,
+        taskId: options?.taskId ? String(options.taskId) : undefined,
         mentions: mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
       };
 
+      // Optimistic state update
       setMessages((prev) => [...prev, newMsg]);
 
       // Update chat's lastMessage
@@ -438,6 +550,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
             messageId: newMsgId,
           };
           setNotifications((prev) => [notif, ...prev]);
+          dmsApi.createNotification(notif).catch(() => {});
         }
       });
 
@@ -445,54 +558,72 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       setReplyMessage(null);
       setTaskQuoteForComposer(null);
 
-      // Trigger automatic reply if it's regular chat message
-      if (type === 'text' || type === 'voice' || type === 'image' || type === 'document') {
-        triggerAutoReply(chatId, text);
+      // Asynchronously persist message to ERP-Task database via API
+      dmsApi.sendChatMessage(newMsg).catch((err) => {
+        console.error('Failed to persist message to ERP-Task database:', err?.message);
+      });
+
+      // If this conversation is associated with a specific DMS task, synchronize message as a task comment in DMS
+      const targetChat = chats.find((c) => c.id === chatId);
+      const linkedTaskId = options?.taskId || targetChat?.linkedTaskId;
+      if (linkedTaskId && (type === 'text' || type === 'task_card')) {
+        dmsApi
+          .addTaskComment(linkedTaskId, `[Chat by ${currentUser.name}]: ${text}`)
+          .catch((err) => {
+            console.warn('Failed to sync chat message to DMS task comments:', err?.message);
+          });
       }
     },
-    [currentUser, users, triggerAutoReply]
+    [currentUser, users, chats]
   );
 
   // React to message
-  const reactToMessage = useCallback((messageId: string, emoji: string) => {
-    setMessages((prev) =>
-      prev.map((msg) => {
-        if (msg.id !== messageId) return msg;
+  const reactToMessage = useCallback(
+    (messageId: string, emoji: string) => {
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.id !== messageId) return msg;
 
-        const currentReactions = msg.reactions || [];
-        const existingReaction = currentReactions.find((r) => r.emoji === emoji);
+          const currentReactions = msg.reactions || [];
+          const existingReaction = currentReactions.find((r) => r.emoji === emoji);
 
-        let updatedReactions;
-        if (existingReaction) {
-          if (existingReaction.userIds.includes(currentUser.id)) {
-            // Remove user reaction
-            const newUserIds = existingReaction.userIds.filter((id) => id !== currentUser.id);
-            if (newUserIds.length === 0) {
-              updatedReactions = currentReactions.filter((r) => r.emoji !== emoji);
+          let updatedReactions;
+          if (existingReaction) {
+            if (existingReaction.userIds.includes(currentUser.id)) {
+              const newUserIds = existingReaction.userIds.filter((id) => id !== currentUser.id);
+              if (newUserIds.length === 0) {
+                updatedReactions = currentReactions.filter((r) => r.emoji !== emoji);
+              } else {
+                updatedReactions = currentReactions.map((r) =>
+                  r.emoji === emoji ? { ...r, userIds: newUserIds } : r
+                );
+              }
             } else {
               updatedReactions = currentReactions.map((r) =>
-                r.emoji === emoji ? { ...r, userIds: newUserIds } : r
+                r.emoji === emoji ? { ...r, userIds: [...r.userIds, currentUser.id] } : r
               );
             }
           } else {
-            // Add user to reaction
-            updatedReactions = currentReactions.map((r) =>
-              r.emoji === emoji ? { ...r, userIds: [...r.userIds, currentUser.id] } : r
-            );
+            updatedReactions = [...currentReactions, { emoji, userIds: [currentUser.id] }];
           }
-        } else {
-          // Add new emoji reaction
-          updatedReactions = [...currentReactions, { emoji, userIds: [currentUser.id] }];
-        }
 
-        return { ...msg, reactions: updatedReactions };
-      })
-    );
-  }, [currentUser.id]);
+          return { ...msg, reactions: updatedReactions };
+        })
+      );
 
-  // Create Task
+      // Persist reaction to ERP-Task backend
+      dmsApi.reactToChatMessage(messageId, emoji, currentUser.id).catch((err) => {
+        console.error('Failed to persist reaction to DMS backend:', err?.message);
+      });
+    },
+    [currentUser.id]
+  );
+
+  // ========================================================
+  // DMS TASK INTEGRATION: CREATE TASK IN DMS API
+  // ========================================================
   const createTask = useCallback(
-    (data: {
+    async (data: {
       title: string;
       description: string;
       department: Department;
@@ -505,141 +636,126 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       sourceChatId?: string;
       sourceMessageId?: string;
       attachments?: TaskAttachment[];
-    }) => {
+    }): Promise<Task> => {
       const now = new Date().toISOString();
-      const codeNumber = 100 + tasks.length + 1;
-      const code = `TASK-${codeNumber}`;
-      const taskId = `task_${Date.now()}`;
 
-      const checklist = data.checklistTitles
-        .filter((t) => t.trim().length > 0)
-        .map((t, index) => ({
-          id: `chk_${Date.now()}_${index}`,
-          title: t.trim(),
-          completed: false,
-        }));
+      try {
+        // Create in DMS backend via API
+        const createdDmsTask = await dmsApi.createTask({
+          title: data.title,
+          description: data.description,
+          department: data.department,
+          priority: data.priority,
+          dueDate: data.dueDate,
+          assigneeIds: data.assigneeIds.length > 0 ? data.assigneeIds : [currentUser.id],
+          requiresApproval: data.requiresApproval,
+          checklistTitles: data.checklistTitles,
+        });
 
-      const newTask: Task = {
-        id: taskId,
-        code,
-        title: data.title,
-        description: data.description,
-        department: data.department,
-        status: 'todo',
-        priority: data.priority,
-        dueDate: data.dueDate,
-        assigneeIds: data.assigneeIds.length > 0 ? data.assigneeIds : [currentUser.id],
-        creatorId: currentUser.id,
-        createdAt: now,
-        updatedAt: now,
-        checklist,
-        requiresApproval: data.requiresApproval,
-        proofRequired: data.proofRequired,
-        sourceChatId: data.sourceChatId,
-        sourceMessageId: data.sourceMessageId,
-        attachments: data.attachments || [],
-        comments: [],
-        activityLog: [
-          {
-            id: 'act_' + Date.now(),
-            userId: currentUser.id,
-            action: `Created task ${code}`,
+        // Attach local client metadata (sourceChatId, sourceMessageId)
+        const newTask: Task = {
+          ...createdDmsTask,
+          sourceChatId: data.sourceChatId,
+          sourceMessageId: data.sourceMessageId,
+          attachments: data.attachments || createdDmsTask.attachments || [],
+        };
+
+        setTasks((prev) => [newTask, ...prev.filter((t) => t.id !== newTask.id)]);
+
+        // If created from chat, post task card & link message
+        if (data.sourceChatId) {
+          if (data.sourceMessageId) {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === data.sourceMessageId ? { ...m, linkedTaskId: newTask.id } : m))
+            );
+          }
+
+          const cardMsg: ChatMessage = {
+            id: 'msg_card_' + Date.now(),
+            chatId: data.sourceChatId,
+            senderId: 'system',
+            text: `${currentUser.name} created ${newTask.code}: ${newTask.title}`,
+            type: 'task_card',
             timestamp: now,
-          },
-        ],
-      };
+            status: 'read',
+            taskId: newTask.id,
+          };
 
-      setTasks((prev) => [newTask, ...prev]);
+          const sysMsg: ChatMessage = {
+            id: 'msg_sys_' + (Date.now() + 1),
+            chatId: data.sourceChatId,
+            senderId: 'system',
+            text: `DMS Task ${newTask.code} created by ${currentUser.name}`,
+            type: 'system',
+            timestamp: now,
+            status: 'read',
+          };
 
-      // If created from chat, inject card & system notification into chat
-      if (data.sourceChatId) {
-        // Link original message if exists
-        if (data.sourceMessageId) {
-          setMessages((prev) =>
-            prev.map((m) => (m.id === data.sourceMessageId ? { ...m, linkedTaskId: taskId } : m))
+          setMessages((prev) => [...prev, cardMsg, sysMsg]);
+          dmsApi.sendChatMessage(cardMsg).catch(() => {});
+          dmsApi.sendChatMessage(sysMsg).catch(() => {});
+
+          setChats((prev) =>
+            prev.map((c) =>
+              c.id === data.sourceChatId
+                ? {
+                    ...c,
+                    lastMessage: {
+                      text: `📋 ${newTask.code}: ${data.title}`,
+                      timestamp: now,
+                      senderId: currentUser.id,
+                      type: 'task_card',
+                    },
+                  }
+                : c
+            )
           );
         }
 
-        // Post task card message into the chat
-        const cardMsg: ChatMessage = {
-          id: 'msg_card_' + Date.now(),
-          chatId: data.sourceChatId,
-          senderId: 'system',
-          text: `${currentUser.name} created task ${code}`,
-          type: 'task_card',
-          timestamp: now,
-          status: 'read',
-          taskId,
-        };
+        // Notify assignees
+        newTask.assigneeIds.forEach((assigneeId) => {
+          if (assigneeId !== currentUser.id) {
+            const notif: AppNotification = {
+              id: 'notif_' + Date.now() + Math.random(),
+              recipientId: assigneeId,
+              senderId: currentUser.id,
+              type: 'new_task',
+              title: `DMS Assigned: ${newTask.code}`,
+              body: `${currentUser.name} assigned you to "${newTask.title}"`,
+              timestamp: now,
+              read: false,
+              taskId: newTask.id,
+              chatId: data.sourceChatId,
+            };
+            setNotifications((prev) => [notif, ...prev]);
+            dmsApi.createNotification(notif).catch(() => {});
+          }
+        });
 
-        const sysMsg: ChatMessage = {
-          id: 'msg_sys_' + (Date.now() + 1),
-          chatId: data.sourceChatId,
-          senderId: 'system',
-          text: `Task ${code} (${data.title}) created by ${currentUser.name}`,
-          type: 'system',
-          timestamp: now,
-          status: 'read',
-        };
-
-        setMessages((prev) => [...prev, cardMsg, sysMsg]);
-
-        // Update chat's lastMessage
-        setChats((prev) =>
-          prev.map((c) =>
-            c.id === data.sourceChatId
-              ? {
-                  ...c,
-                  lastMessage: {
-                    text: `📋 ${code}: ${data.title}`,
-                    timestamp: now,
-                    senderId: currentUser.id,
-                    type: 'task_card',
-                  },
-                }
-              : c
-          )
-        );
+        addToast(`DMS Task ${newTask.code} created successfully`, 'success');
+        return newTask;
+      } catch (err: any) {
+        addToast(`Failed to create task in DMS: ${err?.message}`, 'warning');
+        throw err;
       }
-
-      // Notify assignees
-      newTask.assigneeIds.forEach((assigneeId) => {
-        if (assigneeId !== currentUser.id) {
-          const notif: AppNotification = {
-            id: 'notif_' + Date.now() + Math.random(),
-            recipientId: assigneeId,
-            senderId: currentUser.id,
-            type: 'new_task',
-            title: `Assigned: ${code}`,
-            body: `${currentUser.name} assigned you to "${newTask.title}"`,
-            timestamp: now,
-            read: false,
-            taskId,
-            chatId: data.sourceChatId,
-          };
-          setNotifications((prev) => [notif, ...prev]);
-        }
-      });
-
-      addToast(`Task ${code} created successfully`, 'success');
-      return newTask;
     },
-    [tasks.length, currentUser, addToast]
+    [currentUser, addToast]
   );
 
-  // Update Task Status
+  // ========================================================
+  // DMS TASK INTEGRATION: UPDATE TASK STATUS
+  // ========================================================
   const updateTaskStatus = useCallback(
-    (taskId: string, newStatus: TaskStatus) => {
+    async (taskId: string, newStatus: TaskStatus) => {
       const task = tasks.find((t) => t.id === taskId);
       if (!task) return;
 
       const now = new Date().toISOString();
-
-      // Check approval workflow: if requiresApproval and user tries to set to 'completed'
       let targetStatus = newStatus;
+
       if (newStatus === 'completed' && task.requiresApproval && task.creatorId !== currentUser.id) {
         targetStatus = 'under_review';
-        addToast(`Submitted for review. Awaiting approval from ${getUserById(task.creatorId)?.name}`, 'info');
+        addToast(`Submitted for review. Awaiting approval from ${getUserById(task.creatorId)?.name || 'Creator'}`, 'info');
       }
 
       const statusLabels: Record<TaskStatus, string> = {
@@ -650,80 +766,52 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         blocked: 'Blocked',
       };
 
-      const activityLogItem = {
-        id: 'act_' + Date.now(),
-        userId: currentUser.id,
-        action: `Changed status to ${statusLabels[targetStatus]}`,
-        timestamp: now,
-      };
+      try {
+        // Transition status directly in DMS API
+        await dmsApi.updateTaskStatus(taskId, targetStatus);
 
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === taskId
-            ? {
-                ...t,
-                status: targetStatus,
-                updatedAt: now,
-                activityLog: [activityLogItem, ...t.activityLog],
-              }
-            : t
-        )
-      );
-
-      // Post system message to source chat
-      if (task.sourceChatId) {
-        const sysMsg: ChatMessage = {
-          id: 'msg_sys_' + Date.now(),
-          chatId: task.sourceChatId,
-          senderId: 'system',
-          text: `Task ${task.code} marked ${statusLabels[targetStatus]} by ${currentUser.name}`,
-          type: 'system',
+        const activityLogItem = {
+          id: 'act_' + Date.now(),
+          userId: currentUser.id,
+          action: `Changed status to ${statusLabels[targetStatus]} in DMS`,
           timestamp: now,
-          status: 'read',
         };
-        setMessages((prev) => [...prev, sysMsg]);
-      }
 
-      // If moved to under_review, notify creator
-      if (targetStatus === 'under_review' && task.creatorId !== currentUser.id) {
-        const notif: AppNotification = {
-          id: 'notif_' + Date.now(),
-          recipientId: task.creatorId,
-          senderId: currentUser.id,
-          type: 'approval_request',
-          title: `Approval Required: ${task.code}`,
-          body: `${currentUser.name} requested approval for "${task.title}"`,
-          timestamp: now,
-          read: false,
-          taskId,
-          chatId: task.sourceChatId,
-        };
-        setNotifications((prev) => [notif, ...prev]);
-      }
-
-      // If moved to completed, notify creator and assignees
-      if (targetStatus === 'completed') {
-        const recipients = [...new Set([task.creatorId, ...task.assigneeIds])].filter(
-          (id) => id !== currentUser.id
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.id === taskId
+              ? {
+                  ...t,
+                  status: targetStatus,
+                  updatedAt: now,
+                  activityLog: [activityLogItem, ...t.activityLog],
+                }
+              : t
+          )
         );
-        recipients.forEach((recId) => {
-          const notif: AppNotification = {
-            id: 'notif_' + Date.now() + Math.random(),
-            recipientId: recId,
-            senderId: currentUser.id,
-            type: 'status_change',
-            title: `Task Completed: ${task.code}`,
-            body: `${currentUser.name} marked "${task.title}" as completed`,
-            timestamp: now,
-            read: false,
-            taskId,
-            chatId: task.sourceChatId,
-          };
-          setNotifications((prev) => [notif, ...prev]);
-        });
-      }
 
-      addToast(`Status updated to ${statusLabels[targetStatus]}`, 'success');
+        if (task.sourceChatId) {
+          const sysMsg: ChatMessage = {
+            id: 'msg_sys_' + Date.now(),
+            chatId: task.sourceChatId,
+            senderId: 'system',
+            text: `Task ${task.code} marked ${statusLabels[targetStatus]} by ${currentUser.name}`,
+            type: 'system',
+            timestamp: now,
+            status: 'read',
+          };
+          setMessages((prev) => [...prev, sysMsg]);
+          dmsApi.sendChatMessage(sysMsg).catch(() => {});
+        }
+
+        addToast(`DMS Task status updated to ${statusLabels[targetStatus]}`, 'success');
+      } catch (err: any) {
+        addToast(`DMS update note: ${err?.message}`, 'warning');
+        // Still update local UI state with warning
+        setTasks((prev) =>
+          prev.map((t) => (t.id === taskId ? { ...t, status: targetStatus, updatedAt: now } : t))
+        );
+      }
     },
     [tasks, currentUser, getUserById, addToast]
   );
@@ -751,6 +839,10 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         timestamp: now,
       };
 
+      // Also persist to DMS if possible
+      dmsApi.addTaskComment(taskId, `[Completion Proof Submitted]: ${note}`).catch(() => {});
+      dmsApi.updateTaskStatus(taskId, targetStatus).catch(() => {});
+
       setTasks((prev) =>
         prev.map((t) =>
           t.id === taskId
@@ -765,7 +857,6 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         )
       );
 
-      // Post system message
       if (task.sourceChatId) {
         const sysMsg: ChatMessage = {
           id: 'msg_sys_' + Date.now(),
@@ -777,26 +868,10 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           status: 'read',
         };
         setMessages((prev) => [...prev, sysMsg]);
+        dmsApi.sendChatMessage(sysMsg).catch(() => {});
       }
 
-      // Notify creator if requires approval
-      if (task.requiresApproval && task.creatorId !== currentUser.id) {
-        const notif: AppNotification = {
-          id: 'notif_' + Date.now(),
-          recipientId: task.creatorId,
-          senderId: currentUser.id,
-          type: 'approval_request',
-          title: `Proof Submitted: ${task.code}`,
-          body: `${currentUser.name} submitted proof for "${task.title}". Review and approve.`,
-          timestamp: now,
-          read: false,
-          taskId,
-          chatId: task.sourceChatId,
-        };
-        setNotifications((prev) => [notif, ...prev]);
-      }
-
-      addToast('Proof submitted successfully!', 'success');
+      addToast('Proof submitted and recorded in DMS', 'success');
       setIsProofModalOpen(false);
     },
     [tasks, currentUser, addToast]
@@ -804,7 +879,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   // Approve Task
   const approveTask = useCallback(
-    (taskId: string) => {
+    async (taskId: string) => {
       const task = tasks.find((t) => t.id === taskId);
       if (!task) return;
 
@@ -812,9 +887,15 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       const activityLogItem = {
         id: 'act_' + Date.now(),
         userId: currentUser.id,
-        action: `Approved task completion`,
+        action: `Approved task completion in DMS`,
         timestamp: now,
       };
+
+      try {
+        await dmsApi.updateTaskStatus(taskId, 'completed');
+      } catch (err: any) {
+        console.warn('DMS approve sync:', err?.message);
+      }
 
       setTasks((prev) =>
         prev.map((t) =>
@@ -845,35 +926,17 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           status: 'read',
         };
         setMessages((prev) => [...prev, sysMsg]);
+        dmsApi.sendChatMessage(sysMsg).catch(() => {});
       }
 
-      // Notify assignees
-      task.assigneeIds.forEach((assigneeId) => {
-        if (assigneeId !== currentUser.id) {
-          const notif: AppNotification = {
-            id: 'notif_' + Date.now() + Math.random(),
-            recipientId: assigneeId,
-            senderId: currentUser.id,
-            type: 'status_change',
-            title: `Approved: ${task.code}`,
-            body: `${currentUser.name} approved "${task.title}". Great work!`,
-            timestamp: now,
-            read: false,
-            taskId,
-            chatId: task.sourceChatId,
-          };
-          setNotifications((prev) => [notif, ...prev]);
-        }
-      });
-
-      addToast(`Task ${task.code} approved!`, 'success');
+      addToast(`DMS Task ${task.code} approved!`, 'success');
     },
     [tasks, currentUser, addToast]
   );
 
   // Reject Task
   const rejectTask = useCallback(
-    (taskId: string, reason: string) => {
+    async (taskId: string, reason: string) => {
       const task = tasks.find((t) => t.id === taskId);
       if (!task) return;
 
@@ -891,6 +954,13 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         text: `[Approval Rejected]: ${reason}`,
         createdAt: now,
       };
+
+      try {
+        await dmsApi.addTaskComment(taskId, `[Approval Rejected]: ${reason}`);
+        await dmsApi.updateTaskStatus(taskId, 'in_progress');
+      } catch (err: any) {
+        console.warn('DMS reject sync:', err?.message);
+      }
 
       setTasks((prev) =>
         prev.map((t) =>
@@ -923,28 +993,10 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           status: 'read',
         };
         setMessages((prev) => [...prev, sysMsg]);
+        dmsApi.sendChatMessage(sysMsg).catch(() => {});
       }
 
-      // Notify assignees
-      task.assigneeIds.forEach((assigneeId) => {
-        if (assigneeId !== currentUser.id) {
-          const notif: AppNotification = {
-            id: 'notif_' + Date.now() + Math.random(),
-            recipientId: assigneeId,
-            senderId: currentUser.id,
-            type: 'status_change',
-            title: `Changes Requested: ${task.code}`,
-            body: `${currentUser.name} rejected completion: "${reason}"`,
-            timestamp: now,
-            read: false,
-            taskId,
-            chatId: task.sourceChatId,
-          };
-          setNotifications((prev) => [notif, ...prev]);
-        }
-      });
-
-      addToast(`Task rejected and moved to In Progress`, 'warning');
+      addToast(`Task moved to In Progress in DMS`, 'warning');
     },
     [tasks, currentUser, addToast]
   );
@@ -977,38 +1029,56 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     [currentUser.id]
   );
 
-  // Add Comment to Task
+  // ========================================================
+  // DMS TASK INTEGRATION: ADD COMMENT TO DMS TASK
+  // ========================================================
   const addCommentToTask = useCallback(
-    (taskId: string, text: string) => {
+    async (taskId: string, text: string) => {
       if (!text.trim()) return;
       const now = new Date().toISOString();
-      const newComment = {
-        id: 'comm_' + Date.now(),
-        userId: currentUser.id,
-        text: text.trim(),
-        createdAt: now,
-      };
 
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === taskId
-            ? {
-                ...t,
-                comments: [...t.comments, newComment],
-                updatedAt: now,
-              }
-            : t
-        )
-      );
-
-      addToast('Comment added', 'info');
+      try {
+        const createdComment = await dmsApi.addTaskComment(taskId, text.trim());
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.id === taskId
+              ? {
+                  ...t,
+                  comments: [...t.comments, createdComment],
+                  updatedAt: now,
+                }
+              : t
+          )
+        );
+        addToast('Comment synced with DMS task', 'info');
+      } catch (err: any) {
+        // Fallback local update if network issue
+        const newComment = {
+          id: 'comm_' + Date.now(),
+          userId: currentUser.id,
+          text: text.trim(),
+          createdAt: now,
+        };
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.id === taskId
+              ? {
+                  ...t,
+                  comments: [...t.comments, newComment],
+                  updatedAt: now,
+                }
+              : t
+          )
+        );
+        addToast(`Comment added (local): ${err?.message}`, 'info');
+      }
     },
     [currentUser.id, addToast]
   );
 
   // Create new chat
   const createChat = useCallback(
-    (data: { name: string; type: 'direct' | 'group'; participantIds: string[]; department?: Department }) => {
+    (data: { name: string; type: 'direct' | 'group' | 'channel'; participantIds: string[]; department?: Department }) => {
       const chatId = 'chat_' + Date.now();
       const newChat: Chat = {
         id: chatId,
@@ -1025,10 +1095,74 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       setActiveChatId(chatId);
       setActiveMobileTab('chats');
       setIsNewChatModalOpen(false);
+
+      // Persist conversation to ERP-Task backend
+      dmsApi.saveConversation(newChat).catch((err) => {
+        console.warn('Failed to persist conversation to DMS backend:', err?.message);
+      });
+
       addToast(`Chat "${data.name}" created`, 'success');
       return chatId;
     },
     [currentUser, addToast]
+  );
+
+  // Open or create a discussion chat dedicated to a specific DMS task
+  const openTaskChat = useCallback(
+    (taskId: string) => {
+      const task = tasks.find((t) => t.id === taskId);
+      if (!task) return;
+
+      // Check if a dedicated chat already exists for this task
+      const existingChat = chats.find(
+        (c) => c.linkedTaskId === taskId || c.id === task.sourceChatId || c.id === `task_chat_${taskId}`
+      );
+
+      if (existingChat) {
+        setActiveChatId(existingChat.id);
+        setTaskQuoteForComposer(task);
+        setActiveMobileTab('chats');
+        closeTaskDrawer();
+        return;
+      }
+
+      // Create a dedicated task discussion conversation
+      const newChatId = `task_chat_${taskId}`;
+      const participants = [
+        ...new Set([
+          currentUser.id,
+          task.creatorId,
+          ...task.assigneeIds,
+          ...(task.reporterIds || []),
+        ]),
+      ];
+      const newTaskChat: Chat = {
+        id: newChatId,
+        name: `${task.code}: ${task.title.slice(0, 32)}`,
+        type: 'group',
+        avatarBg: 'bg-indigo-700',
+        participantIds: participants,
+        adminIds: [currentUser.id, task.creatorId],
+        department: task.department,
+        linkedTaskId: taskId,
+        unreadCounts: {},
+        description: `Dedicated discussion channel for DMS Task ${task.code} (${task.title})`,
+      };
+
+      setChats((prev) => [newTaskChat, ...prev]);
+      setActiveChatId(newChatId);
+      setTaskQuoteForComposer(task);
+      setActiveMobileTab('chats');
+      closeTaskDrawer();
+
+      // Persist task discussion conversation to ERP-Task backend
+      dmsApi.saveConversation(newTaskChat).catch((err) => {
+        console.warn('Failed to persist task chat to DMS backend:', err?.message);
+      });
+
+      addToast(`Opened discussion channel for ${task.code}`, 'info');
+    },
+    [tasks, chats, currentUser.id, closeTaskDrawer, addToast]
   );
 
   // Navigation helpers
@@ -1037,7 +1171,6 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       setActiveChatId(chatId);
       setActiveMobileTab('chats');
       setHighlightedMessageId(messageId);
-      // Auto clear highlight after 3 seconds
       setTimeout(() => {
         setHighlightedMessageId(null);
       }, 3500);
@@ -1047,7 +1180,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const navigateToTask = useCallback(
     (taskId: string) => {
-      openTaskDrawer(taskId);
+      openTaskDrawer(String(taskId));
       setActiveMobileTab('tasks');
     },
     [openTaskDrawer]
@@ -1060,11 +1193,15 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         users,
         setCurrentUserId,
         getUserById,
+        isLoadingDms,
+        isDmsConnected,
+        refreshDmsData,
         chats,
         activeChatId,
         activeChat,
         setActiveChatId,
         createChat,
+        openTaskChat,
         messages,
         chatMessages,
         sendMessage,

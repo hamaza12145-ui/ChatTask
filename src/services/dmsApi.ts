@@ -1,0 +1,1048 @@
+/**
+ * DMS (Donor & Task Management System) API Integration Client
+ * Single Source of Truth for Users, Departments, and Tasks.
+ */
+
+import { User, Task, TaskStatus, TaskPriority, Department, TaskComment, TaskActivityLog, Chat, ChatMessage, AppNotification } from '../types';
+
+export const DMS_BASE_URL =
+  (typeof window !== 'undefined' && (window as any).__DMS_API_URL__) ||
+  (import.meta as any).env?.VITE_DMS_API_URL ||
+  'http://localhost:3000';
+
+// Known default credentials for DMS demo persona accounts
+export const DMS_CREDENTIALS: Record<string, string> = {
+  'admin@example.com': 'admin%1123',
+  'store@example.com': 'store%1123',
+  'procurements@example.com': 'procurements%1123',
+  'program@example.com': 'program%1123',
+  'finance@example.com': 'finance%1123',
+  'anjam@example.com': 'admin%1123',
+};
+
+// Department metadata & friendly labels for all official DMS departments
+export interface DepartmentMeta {
+  id: Department;
+  label: string;
+  description: string;
+  color: string;
+  bgColor: string;
+  borderColor: string;
+}
+
+export const DMS_DEPARTMENTS: DepartmentMeta[] = [
+  {
+    id: 'admin',
+    label: 'Administration',
+    description: 'Executive administration, policy, and compliance',
+    color: 'text-slate-700 dark:text-slate-300',
+    bgColor: 'bg-slate-100 dark:bg-slate-800/80',
+    borderColor: 'border-slate-200 dark:border-slate-700',
+  },
+  {
+    id: 'program',
+    label: 'Program & Operations',
+    description: 'Field execution, aid delivery, and welfare programs',
+    color: 'text-emerald-700 dark:text-emerald-400',
+    bgColor: 'bg-emerald-50 dark:bg-emerald-950/40',
+    borderColor: 'border-emerald-200 dark:border-emerald-800/50',
+  },
+  {
+    id: 'accounts_and_finance',
+    label: 'Accounts & Finance',
+    description: 'Financial accounting, audits, disbursements, and budgeting',
+    color: 'text-amber-600 dark:text-amber-400',
+    bgColor: 'bg-amber-50 dark:bg-amber-950/40',
+    borderColor: 'border-amber-200 dark:border-amber-800/50',
+  },
+  {
+    id: 'store',
+    label: 'Store & Inventory',
+    description: 'Inventory management, stock tracking, and warehousing',
+    color: 'text-cyan-700 dark:text-cyan-400',
+    bgColor: 'bg-cyan-50 dark:bg-cyan-950/40',
+    borderColor: 'border-cyan-200 dark:border-cyan-800/50',
+  },
+  {
+    id: 'procurements',
+    label: 'Procurements',
+    description: 'Vendor procurement, requisition tracking, and purchase orders',
+    color: 'text-blue-600 dark:text-blue-400',
+    bgColor: 'bg-blue-50 dark:bg-blue-950/40',
+    borderColor: 'border-blue-200 dark:border-blue-800/50',
+  },
+  {
+    id: 'fund_raising',
+    label: 'Fund Raising',
+    description: 'Campaigns, donor outreach, and recurring pledges',
+    color: 'text-rose-600 dark:text-rose-400',
+    bgColor: 'bg-rose-50 dark:bg-rose-950/40',
+    borderColor: 'border-rose-200 dark:border-rose-800/50',
+  },
+  {
+    id: 'it',
+    label: 'Information Technology',
+    description: 'Software systems, network infrastructure, and DevOps',
+    color: 'text-indigo-600 dark:text-indigo-400',
+    bgColor: 'bg-indigo-50 dark:bg-indigo-950/40',
+    borderColor: 'border-indigo-200 dark:border-indigo-800/50',
+  },
+  {
+    id: 'hr',
+    label: 'Human Resources',
+    description: 'Staff recruitment, performance, payroll, and benefits',
+    color: 'text-purple-600 dark:text-purple-400',
+    bgColor: 'bg-purple-50 dark:bg-purple-950/40',
+    borderColor: 'border-purple-200 dark:border-purple-800/50',
+  },
+  {
+    id: 'marketing',
+    label: 'Marketing & PR',
+    description: 'Public relations, social media, and digital campaigns',
+    color: 'text-fuchsia-600 dark:text-fuchsia-400',
+    bgColor: 'bg-fuchsia-50 dark:bg-fuchsia-950/40',
+    borderColor: 'border-fuchsia-200 dark:border-fuchsia-800/50',
+  },
+  {
+    id: 'crd',
+    label: 'Corporate Resource Dev (CRD)',
+    description: 'Corporate partnerships, CSR grants, and institutional funding',
+    color: 'text-teal-600 dark:text-teal-400',
+    bgColor: 'bg-teal-50 dark:bg-teal-950/40',
+    borderColor: 'border-teal-200 dark:border-teal-800/50',
+  },
+  {
+    id: 'health',
+    label: 'Health & Medical',
+    description: 'Medical camps, clinics, and health initiatives',
+    color: 'text-red-600 dark:text-red-400',
+    bgColor: 'bg-red-50 dark:bg-red-950/40',
+    borderColor: 'border-red-200 dark:border-red-800/50',
+  },
+  {
+    id: 'meal',
+    label: 'Food & Nutrition (Meal)',
+    description: 'Ration distributions, food drives, and nutrition support',
+    color: 'text-orange-600 dark:text-orange-400',
+    bgColor: 'bg-orange-50 dark:bg-orange-950/40',
+    borderColor: 'border-orange-200 dark:border-orange-800/50',
+  },
+];
+
+export const getDepartmentMeta = (dept: string): DepartmentMeta => {
+  const normalized = dept.toLowerCase().trim();
+  const found = DMS_DEPARTMENTS.find((d) => d.id === normalized);
+  if (found) return found;
+
+  const prettyLabel = normalized
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+
+  return {
+    id: normalized as Department,
+    label: prettyLabel,
+    description: `${prettyLabel} department`,
+    color: 'text-slate-700 dark:text-slate-300',
+    bgColor: 'bg-slate-100 dark:bg-slate-800/80',
+    borderColor: 'border-slate-200 dark:border-slate-700',
+  };
+};
+
+export const formatDepartmentName = (dept: string): string => {
+  return getDepartmentMeta(dept).label;
+};
+
+// Deterministic Tailwind avatar background generator
+const AVATAR_BG_COLORS = [
+  'bg-emerald-700',
+  'bg-blue-600',
+  'bg-indigo-600',
+  'bg-purple-700',
+  'bg-amber-700',
+  'bg-teal-700',
+  'bg-rose-700',
+  'bg-cyan-700',
+];
+
+export const getAvatarBg = (id: string | number): string => {
+  const num = typeof id === 'number' ? id : parseInt(id, 10) || id.charCodeAt(0) || 0;
+  return AVATAR_BG_COLORS[Math.abs(num) % AVATAR_BG_COLORS.length];
+};
+
+export const capitalizeWords = (str: string): string => {
+  if (!str) return '';
+  return str
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+};
+
+export const getInitials = (name: string): string => {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return (name.slice(0, 2) || 'DM').toUpperCase();
+};
+
+export const formatUserDesignation = (role: string, department: string): string => {
+  const deptMeta = getDepartmentMeta(department);
+  switch (role?.toLowerCase()) {
+    case 'super_admin':
+      return 'Super Administrator';
+    case 'admin':
+      return 'System Administrator';
+    case 'manager':
+      return `${deptMeta.label} Manager`;
+    case 'dept_head':
+      return `${deptMeta.label} Head`;
+    case 'user':
+    default:
+      return `${deptMeta.label} Officer`;
+  }
+};
+
+class DmsApiService {
+  private token: string | null = null;
+  private currentEmail: string | null = null;
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      this.token = localStorage.getItem('dms_token');
+      this.currentEmail = localStorage.getItem('dms_user_email');
+    }
+  }
+
+  public getToken(): string | null {
+    return this.token;
+  }
+
+  public setToken(token: string | null, email?: string) {
+    this.token = token;
+    if (typeof window !== 'undefined') {
+      if (token) {
+        localStorage.setItem('dms_token', token);
+      } else {
+        localStorage.removeItem('dms_token');
+      }
+      if (email) {
+        this.currentEmail = email;
+        localStorage.setItem('dms_user_email', email);
+      }
+    }
+  }
+
+  /**
+   * Login to DMS with credentials
+   */
+  async login(email: string, password?: string): Promise<{ token: string; user: any }> {
+    const pwd = password || DMS_CREDENTIALS[email] || 'admin%1123';
+    const response = await fetch(`${DMS_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: pwd }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ message: 'Login failed' }));
+      throw new Error(err.message || 'Authentication with DMS failed');
+    }
+
+    const data = await response.json();
+    const user = data.user || {};
+    if (!user.name) {
+      user.name = user.first_name
+        ? `${user.first_name} ${user.last_name || ''}`.trim()
+        : (user.email ? user.email.split('@')[0] : 'User');
+    }
+    this.setToken(data.token, email);
+    return { token: data.token, user };
+  }
+
+  /**
+   * Ensure the API client is authenticated.
+   * If a specific user email is requested, login as that user.
+   */
+  async ensureAuthenticated(preferredEmail: string = 'admin@example.com'): Promise<string> {
+    if (this.token && this.currentEmail === preferredEmail) {
+      return this.token;
+    }
+
+    try {
+      const { token } = await this.login(preferredEmail);
+      return token;
+    } catch {
+      // Fallback to admin login
+      if (preferredEmail !== 'admin@example.com') {
+        const { token } = await this.login('admin@example.com');
+        return token;
+      }
+      throw new Error('Unable to authenticate with DMS APIs');
+    }
+  }
+
+  /**
+   * Authorized request helper
+   */
+  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    let token = this.getToken();
+    if (!token) {
+      token = await this.ensureAuthenticated();
+    }
+
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(options.headers as any),
+    };
+
+    if (options.body && typeof options.body === 'string' && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    let url = endpoint.startsWith('http') ? endpoint : `${DMS_BASE_URL}${endpoint}`;
+    let response = await fetch(url, { ...options, headers });
+
+    // Handle session expiration
+    if (response.status === 401) {
+      token = await this.ensureAuthenticated('admin@example.com');
+      headers['Authorization'] = `Bearer ${token}`;
+      response = await fetch(url, { ...options, headers });
+    }
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ message: response.statusText }));
+      throw new Error(err.message || `DMS API error: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  // ==========================================
+  // USERS & DEPARTMENTS API
+  // ==========================================
+
+  /**
+   * Fetch all registered DMS users from DMS API
+   */
+  async fetchUsers(): Promise<User[]> {
+    const res = await this.request<{ success?: boolean; data: any[] }>('/users?page=1&pageSize=100');
+    const dmsUsers = res.data || [];
+
+    return dmsUsers.map((u: any): User => {
+      const rawFullName =
+        [u.first_name, u.last_name].filter(Boolean).join(' ').trim() ||
+        (u.email ? u.email.split('@')[0] : `User #${u.id}`);
+      const fullName = capitalizeWords(rawFullName);
+
+      const dept = (u.department || 'admin').toLowerCase() as Department;
+
+      // Find reporting manager details from DMS users
+      const managerUser = u.manager_id ? dmsUsers.find((m: any) => Number(m.id) === Number(u.manager_id)) : null;
+      const managerName = managerUser
+        ? capitalizeWords(
+            [managerUser.first_name, managerUser.last_name].filter(Boolean).join(' ').trim() ||
+              managerUser.email.split('@')[0]
+          )
+        : undefined;
+
+      // Find direct reports from user relationships
+      const directReports = dmsUsers
+        .filter((d: any) => Number(d.manager_id) === Number(u.id))
+        .map((d: any) => String(d.id));
+
+      return {
+        id: String(u.id),
+        name: fullName,
+        designation: formatUserDesignation(u.role, dept),
+        department: dept,
+        avatar: getInitials(fullName),
+        avatarBg: getAvatarBg(u.id),
+        status: u.isActive !== false ? 'online' : 'offline',
+        email: u.email || '',
+        phone: u.phone || undefined,
+        role: u.role || 'user',
+        managerId: u.manager_id ? String(u.manager_id) : undefined,
+        managerName,
+        directReportIds: directReports.length > 0 ? directReports : undefined,
+      };
+    });
+  }
+
+  /**
+   * Fetch a single user by ID from DMS
+   */
+  async fetchUserById(id: string | number): Promise<User | null> {
+    try {
+      const u = await this.request<any>(`/users/${id}`);
+      if (!u) return null;
+      const rawFullName =
+        [u.first_name, u.last_name].filter(Boolean).join(' ').trim() ||
+        (u.email ? u.email.split('@')[0] : `User #${u.id}`);
+      const fullName = capitalizeWords(rawFullName);
+      const dept = (u.department || 'admin').toLowerCase() as Department;
+
+      return {
+        id: String(u.id),
+        name: fullName,
+        designation: formatUserDesignation(u.role, dept),
+        department: dept,
+        avatar: getInitials(fullName),
+        avatarBg: getAvatarBg(u.id),
+        status: u.isActive !== false ? 'online' : 'offline',
+        email: u.email || '',
+        phone: u.phone || undefined,
+        role: u.role || 'user',
+        managerId: u.manager_id ? String(u.manager_id) : undefined,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // ==========================================
+  // TASKS API
+  // ==========================================
+
+  /**
+   * Convert DMS task status string to ChatTask TaskStatus
+   */
+  mapDmsStatusToApp(status: string): TaskStatus {
+    switch (status?.toLowerCase()) {
+      case 'open':
+      case 'draft':
+        return 'todo';
+      case 'in_progress':
+        return 'in_progress';
+      case 'pending_approval':
+        return 'under_review';
+      case 'blocked':
+        return 'blocked';
+      case 'completed':
+      case 'closed':
+      case 'approved':
+        return 'completed';
+      default:
+        return 'todo';
+    }
+  }
+
+  /**
+   * Convert ChatTask TaskStatus to DMS task status string
+   */
+  mapAppStatusToDms(status: TaskStatus): string {
+    switch (status) {
+      case 'todo':
+        return 'open';
+      case 'in_progress':
+        return 'in_progress';
+      case 'under_review':
+        return 'pending_approval';
+      case 'completed':
+        return 'completed';
+      case 'blocked':
+        return 'blocked';
+      default:
+        return 'open';
+    }
+  }
+
+  /**
+   * Convert DMS priority to ChatTask TaskPriority
+   */
+  mapDmsPriorityToApp(priority: string): TaskPriority {
+    switch (priority?.toLowerCase()) {
+      case 'low':
+        return 'low';
+      case 'medium':
+        return 'medium';
+      case 'high':
+        return 'high';
+      case 'critical':
+      case 'urgent':
+        return 'urgent';
+      default:
+        return 'medium';
+    }
+  }
+
+  /**
+   * Convert ChatTask TaskPriority to DMS priority
+   */
+  mapAppPriorityToDms(priority: TaskPriority): string {
+    switch (priority) {
+      case 'urgent':
+        return 'critical';
+      case 'high':
+        return 'high';
+      case 'low':
+        return 'low';
+      case 'medium':
+      default:
+        return 'medium';
+    }
+  }
+
+  /**
+   * Fetch all tasks from DMS API
+   */
+  async fetchTasks(): Promise<Task[]> {
+    const res = await this.request<{ success?: boolean; data: any[] }>('/tasks/list?page=1&pageSize=100');
+    const dmsTasks = res.data || [];
+
+    return dmsTasks.map((t: any): Task => {
+      const code = `TASK-${t.id}`;
+      const status = this.mapDmsStatusToApp(t.status);
+      const priority = this.mapDmsPriorityToApp(t.priority);
+      const dept = (t.department || 'admin').toLowerCase() as Department;
+
+      // Map comments
+      const comments: TaskComment[] = (t.comments || []).map((c: any) => ({
+        id: String(c.id),
+        userId: String(c.author?.id || c.created_by_id || c.user_id || '5'),
+        text: c.content || c.comment || '',
+        createdAt: c.created_at || new Date().toISOString(),
+      }));
+
+      // Map activities
+      const activityLog: TaskActivityLog[] = (t.activities || []).map((a: any) => ({
+        id: String(a.id),
+        userId: String(a.performed_by?.id || a.user_id || '5'),
+        action: a.action || 'Updated task',
+        timestamp: a.created_at || new Date().toISOString(),
+        details: typeof a.details === 'object' ? JSON.stringify(a.details) : String(a.details || ''),
+      }));
+
+      // Map attachments
+      const attachments = (t.attachments || []).map((att: any) => ({
+        id: String(att.id),
+        name: att.file_name || 'attachment',
+        type: (att.file_type?.includes('image') ? 'image' : 'doc') as any,
+        url: att.file_url || '',
+      }));
+
+      // Map checklist items from mov_items
+      const checklist = (t.mov_items || []).map((item: string, idx: number) => ({
+        id: `chk_${t.id}_${idx}`,
+        title: item,
+        completed: false,
+      }));
+
+      const assigneeIds = (t.assigned_user_ids || []).map(String);
+      const reporterIds = Array.isArray(t.reported_to_ids)
+        ? t.reported_to_ids.map(String)
+        : Array.isArray(t.reported_to)
+        ? t.reported_to.map(String)
+        : t.reported_to_id != null
+        ? [String(t.reported_to_id)]
+        : [];
+
+      return {
+        id: String(t.id),
+        code,
+        title: t.title || `Task #${t.id}`,
+        description: t.description || '',
+        department: dept,
+        status,
+        priority,
+        dueDate: t.due_date ? String(t.due_date) : t.created_at || new Date().toISOString(),
+        startDate: t.start_date ? String(t.start_date) : undefined,
+        completedDate: t.completed_date ? String(t.completed_date) : undefined,
+        assigneeIds: assigneeIds.length > 0 ? assigneeIds : ['1'],
+        reporterIds: reporterIds.length > 0 ? reporterIds : undefined,
+        progress: typeof t.progress === 'number' ? t.progress : 0,
+        creatorId: String(t.created_by_id || '5'),
+        createdAt: t.created_at || new Date().toISOString(),
+        updatedAt: t.updated_at || new Date().toISOString(),
+        checklist,
+        requiresApproval: t.workflow_type === 'approval_required',
+        approval: t.approved_by_id?.length
+          ? {
+              status: 'approved',
+              reviewedBy: String(t.approved_by_id[0]),
+              reviewedAt: t.updated_at,
+            }
+          : undefined,
+        proofRequired: Boolean(t.proof_required || (t.mov_items && t.mov_items.length > 0)),
+        attachments,
+        comments,
+        activityLog,
+      };
+    });
+  }
+
+  /**
+   * Fetch a single task by ID from DMS
+   */
+  async fetchTaskById(id: string | number): Promise<Task | null> {
+    try {
+      const res = await this.request<{ success?: boolean; data: any }>(`/tasks/${id}`);
+      const t = res.data;
+      if (!t) return null;
+
+      const code = `TASK-${t.id}`;
+      const status = this.mapDmsStatusToApp(t.status);
+      const priority = this.mapDmsPriorityToApp(t.priority);
+      const dept = (t.department || 'admin').toLowerCase() as Department;
+
+      const comments: TaskComment[] = (t.comments || []).map((c: any) => ({
+        id: String(c.id),
+        userId: String(c.author?.id || c.created_by_id || c.user_id || '5'),
+        text: c.content || c.comment || '',
+        createdAt: c.created_at || new Date().toISOString(),
+      }));
+
+      const activityLog: TaskActivityLog[] = (t.activities || []).map((a: any) => ({
+        id: String(a.id),
+        userId: String(a.performed_by?.id || a.user_id || '5'),
+        action: a.action || 'Updated task',
+        timestamp: a.created_at || new Date().toISOString(),
+      }));
+
+      const attachments = (t.attachments || []).map((att: any) => ({
+        id: String(att.id),
+        name: att.file_name || 'attachment',
+        type: (att.file_type?.includes('image') ? 'image' : 'doc') as any,
+        url: att.file_url || '',
+      }));
+
+      const checklist = (t.mov_items || []).map((item: string, idx: number) => ({
+        id: `chk_${t.id}_${idx}`,
+        title: item,
+        completed: false,
+      }));
+
+      const assigneeIds = (t.assigned_user_ids || []).map(String);
+      const reporterIds = Array.isArray(t.reported_to_ids)
+        ? t.reported_to_ids.map(String)
+        : Array.isArray(t.reported_to)
+        ? t.reported_to.map(String)
+        : t.reported_to_id != null
+        ? [String(t.reported_to_id)]
+        : [];
+
+      return {
+        id: String(t.id),
+        code,
+        title: t.title || `Task #${t.id}`,
+        description: t.description || '',
+        department: dept,
+        status,
+        priority,
+        dueDate: t.due_date ? String(t.due_date) : t.created_at || new Date().toISOString(),
+        startDate: t.start_date ? String(t.start_date) : undefined,
+        completedDate: t.completed_date ? String(t.completed_date) : undefined,
+        assigneeIds: assigneeIds.length > 0 ? assigneeIds : ['1'],
+        reporterIds: reporterIds.length > 0 ? reporterIds : undefined,
+        progress: typeof t.progress === 'number' ? t.progress : 0,
+        creatorId: String(t.created_by_id || '5'),
+        createdAt: t.created_at || new Date().toISOString(),
+        updatedAt: t.updated_at || new Date().toISOString(),
+        checklist,
+        requiresApproval: t.workflow_type === 'approval_required',
+        proofRequired: Boolean(t.proof_required || (t.mov_items && t.mov_items.length > 0)),
+        attachments,
+        comments,
+        activityLog,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Create a new task in DMS through its API
+   */
+  async createTask(data: {
+    title: string;
+    description?: string;
+    department: Department;
+    priority: TaskPriority;
+    dueDate: string;
+    assigneeIds: string[];
+    requiresApproval?: boolean;
+    checklistTitles?: string[];
+  }): Promise<Task> {
+    const assignedUsers = data.assigneeIds.map((id) => parseInt(id, 10)).filter((n) => !isNaN(n) && n > 0);
+    const dmsPriority = this.mapAppPriorityToDms(data.priority);
+    const dmsDept = data.department.toLowerCase();
+
+    // Format due_date to YYYY-MM-DD
+    let dueDateFormatted = data.dueDate;
+    if (data.dueDate.includes('T')) {
+      dueDateFormatted = data.dueDate.split('T')[0];
+    }
+
+    const movChecklist = (data.checklistTitles || []).map((text) => ({
+      text,
+      checked: false,
+    }));
+
+    const payload: any = {
+      title: data.title,
+      description: data.description || '',
+      department: dmsDept,
+      priority: dmsPriority,
+      due_date: dueDateFormatted,
+      assigned_users: assignedUsers.length > 0 ? assignedUsers : [1],
+      workflow_type: data.requiresApproval ? 'approval_required' : 'standard',
+      task_type: 'one_time',
+      mov_checklist: movChecklist,
+      mov_items: data.checklistTitles || [],
+    };
+
+    const res = await this.request<{ success?: boolean; data: any }>('/tasks', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+
+    const created = res.data;
+    const task = await this.fetchTaskById(created.id);
+    if (!task) {
+      throw new Error('Failed to retrieve created task from DMS');
+    }
+    return task;
+  }
+
+  /**
+   * Approve or reject a task in DMS approval workflow
+   */
+  async approveTask(taskId: string, approve: boolean, note?: string): Promise<Task> {
+    const id = parseInt(taskId, 10);
+    await this.request(`/tasks/${id}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({
+        approve,
+        note: note || (approve ? 'Approved in DMS Chat' : 'Rejected in DMS Chat'),
+      }),
+    });
+    const updated = await this.fetchTaskById(taskId);
+    if (!updated) {
+      throw new Error(`Failed to retrieve task #${taskId} after approval`);
+    }
+    return updated;
+  }
+
+  /**
+   * Update task status in DMS
+   */
+  async updateTaskStatus(taskId: string, newStatus: TaskStatus, notes?: string): Promise<Task> {
+    const id = parseInt(taskId, 10);
+    if (isNaN(id)) {
+      throw new Error(`Invalid task ID: ${taskId}`);
+    }
+
+    const currentTask = await this.fetchTaskById(taskId);
+    const oldDmsStatus = currentTask ? this.mapAppStatusToDms(currentTask.status) : 'open';
+    const targetDmsStatus = this.mapAppStatusToDms(newStatus);
+
+    if (oldDmsStatus === targetDmsStatus && currentTask) {
+      return currentTask;
+    }
+
+    // DMS status transition rules:
+    // 1. in_progress -> pending_approval: DMS requires transitioning in_progress -> completed first,
+    //    and then completed -> pending_approval
+    if (oldDmsStatus === 'in_progress' && targetDmsStatus === 'pending_approval') {
+      try {
+        await this.request(`/tasks/${id}/status-transition`, {
+          method: 'POST',
+          body: JSON.stringify({
+            status: 'completed',
+            force_complete: true,
+            notes: notes || 'Work completed, submitting for approval',
+          }),
+        });
+      } catch {
+        await this.request(`/tasks/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'completed' }),
+        }).catch(() => {});
+      }
+
+      try {
+        await this.request(`/tasks/${id}/status-transition`, {
+          method: 'POST',
+          body: JSON.stringify({
+            status: 'pending_approval',
+            notes: notes || 'Submitted for approval',
+          }),
+        });
+      } catch {
+        await this.request(`/tasks/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'pending_approval' }),
+        }).catch(() => {});
+      }
+    } else if (targetDmsStatus === 'completed' && currentTask?.status === 'under_review') {
+      // Approving from review: try approve endpoint first
+      try {
+        await this.approveTask(taskId, true, notes || 'Approved via DMS Chat');
+      } catch {
+        await this.request(`/tasks/${id}/status-transition`, {
+          method: 'POST',
+          body: JSON.stringify({
+            status: 'completed',
+            force_complete: true,
+            notes: notes || 'Approved and completed',
+          }),
+        }).catch(async () => {
+          await this.request(`/tasks/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: 'completed' }),
+          });
+        });
+      }
+    } else {
+      // Direct status transition
+      try {
+        await this.request(`/tasks/${id}/status-transition`, {
+          method: 'POST',
+          body: JSON.stringify({
+            status: targetDmsStatus,
+            force_complete: true,
+            notes: notes || `Status changed to ${newStatus} via ChatTask`,
+          }),
+        });
+      } catch (err: any) {
+        // Fallback to direct PATCH
+        try {
+          await this.request(`/tasks/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: targetDmsStatus }),
+          });
+        } catch (patchErr: any) {
+          console.warn(`DMS status update error on task #${taskId}:`, patchErr?.message);
+          throw patchErr;
+        }
+      }
+    }
+
+    const updated = await this.fetchTaskById(taskId);
+    return updated || currentTask!;
+  }
+
+  /**
+   * Add comment to a DMS task
+   */
+  async addTaskComment(taskId: string, text: string): Promise<TaskComment> {
+    const id = parseInt(taskId, 10);
+    const res = await this.request<{ success?: boolean; data: any }>(`/tasks/${id}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ content: text }),
+    });
+
+    const c = res.data;
+    return {
+      id: String(c.id),
+      userId: String(c.author?.id || '5'),
+      text: c.content || text,
+      createdAt: c.created_at || new Date().toISOString(),
+    };
+  }
+
+  // ==========================================
+  // CHAT & CONVERSATIONS API
+  // ==========================================
+
+  /**
+   * Fetch all persistent chat conversations from ERP-Task backend
+   */
+  async fetchConversations(): Promise<Chat[]> {
+    try {
+      const res = await this.request<{ success?: boolean; data: any[] }>('/chat/conversations');
+      const convs = res.data || [];
+      return convs.map((c: any): Chat => ({
+        id: c.id,
+        name: c.name,
+        type: c.type || 'group',
+        avatarBg: c.avatarBg || 'bg-slate-700',
+        participantIds: c.participantIds || [],
+        adminIds: c.adminIds || [],
+        department: c.department || undefined,
+        linkedTaskId: c.linkedTaskId || undefined,
+        isPinned: Boolean(c.isPinned),
+        description: c.description || undefined,
+        lastMessage: c.lastMessage || undefined,
+        unreadCounts: c.unreadCounts || {},
+      }));
+    } catch (err: any) {
+      console.warn('Failed to fetch conversations from DMS:', err?.message);
+      return [];
+    }
+  }
+
+  /**
+   * Create or update a conversation in ERP-Task backend
+   */
+  async saveConversation(chat: Partial<Chat>): Promise<Chat> {
+    const res = await this.request<{ success?: boolean; data: any }>('/chat/conversations', {
+      method: 'POST',
+      body: JSON.stringify(chat),
+    });
+    return res.data;
+  }
+
+  /**
+   * Fetch persistent chat messages from ERP-Task backend
+   */
+  async fetchMessages(chatId?: string, limit: number = 2000): Promise<ChatMessage[]> {
+    try {
+      const endpoint = chatId ? `/chat/messages/${chatId}?limit=${limit}` : `/chat/messages?limit=${limit}`;
+      const res = await this.request<{ success?: boolean; data: any[] }>(endpoint);
+      const msgs = res.data || [];
+      return msgs.map((m: any): ChatMessage => ({
+        id: m.id,
+        chatId: m.chatId,
+        senderId: String(m.senderId),
+        text: m.text || '',
+        type: m.type || 'text',
+        timestamp: m.timestamp || new Date().toISOString(),
+        status: m.status || 'delivered',
+        replyTo: m.replyTo || undefined,
+        attachment: m.attachment || undefined,
+        voiceDuration: m.voiceDuration ?? undefined,
+        taskId: m.taskId ? String(m.taskId) : undefined,
+        linkedTaskId: m.linkedTaskId ? String(m.linkedTaskId) : undefined,
+        mentions: m.mentions || undefined,
+        reactions: m.reactions || [],
+      }));
+    } catch (err: any) {
+      console.warn('Failed to fetch messages from DMS:', err?.message);
+      return [];
+    }
+  }
+
+  /**
+   * Persist a new chat message to ERP-Task database
+   */
+  async sendChatMessage(msg: Partial<ChatMessage>): Promise<ChatMessage> {
+    const res = await this.request<{ success?: boolean; data: any }>('/chat/messages', {
+      method: 'POST',
+      body: JSON.stringify(msg),
+    });
+    const m = res.data;
+    return {
+      id: m.id,
+      chatId: m.chatId,
+      senderId: String(m.senderId),
+      text: m.text || '',
+      type: m.type || 'text',
+      timestamp: m.timestamp,
+      status: m.status || 'delivered',
+      replyTo: m.replyTo,
+      attachment: m.attachment,
+      voiceDuration: m.voiceDuration,
+      taskId: m.taskId,
+      linkedTaskId: m.linkedTaskId,
+      mentions: m.mentions,
+      reactions: m.reactions || [],
+    };
+  }
+
+  /**
+   * React to a message in ERP-Task database
+   */
+  async reactToChatMessage(messageId: string, emoji: string, userId: string): Promise<ChatMessage> {
+    const res = await this.request<{ success?: boolean; data: any }>(`/chat/messages/${messageId}/react`, {
+      method: 'POST',
+      body: JSON.stringify({ emoji, userId }),
+    });
+    return res.data;
+  }
+
+  /**
+   * Mark a message as read in ERP-Task database
+   */
+  async markChatMessageRead(messageId: string): Promise<ChatMessage | null> {
+    const res = await this.request<{ success?: boolean; data: any }>(`/chat/messages/${messageId}/read`, {
+      method: 'PATCH',
+    });
+    return res.data;
+  }
+
+  // ==========================================
+  // NOTIFICATIONS API (PERSISTED IN task_db)
+  // ==========================================
+
+  /**
+   * Fetch notifications for a user from task_db
+   */
+  async fetchNotifications(userId?: string): Promise<AppNotification[]> {
+    try {
+      const endpoint = userId ? `/chat/notifications?userId=${userId}` : '/chat/notifications';
+      const res = await this.request<{ success?: boolean; data: any[] }>(endpoint);
+      const notifs = res.data || [];
+      return notifs.map((n: any): AppNotification => ({
+        id: String(n.id),
+        recipientId: String(n.recipientId || userId || '5'),
+        senderId: String(n.senderId || 'system'),
+        type: n.type || 'mention',
+        title: n.title || 'Notification',
+        body: n.body || '',
+        timestamp: n.timestamp || new Date().toISOString(),
+        read: Boolean(n.read),
+        chatId: n.chatId || undefined,
+        messageId: n.messageId || undefined,
+        taskId: n.taskId ? String(n.taskId) : undefined,
+      }));
+    } catch (err: any) {
+      console.warn('Failed to fetch notifications from task_db:', err?.message);
+      return [];
+    }
+  }
+
+  /**
+   * Create and persist a notification in task_db
+   */
+  async createNotification(notif: Partial<AppNotification>): Promise<AppNotification> {
+    const res = await this.request<{ success?: boolean; data: any }>('/chat/notifications', {
+      method: 'POST',
+      body: JSON.stringify(notif),
+    });
+    const n = res.data;
+    return {
+      id: String(n.id),
+      recipientId: String(n.recipientId),
+      senderId: String(n.senderId),
+      type: n.type,
+      title: n.title,
+      body: n.body,
+      timestamp: n.timestamp,
+      read: Boolean(n.read),
+      chatId: n.chatId,
+      messageId: n.messageId,
+      taskId: n.taskId,
+    };
+  }
+
+  /**
+   * Mark a notification as read in task_db
+   */
+  async markNotificationRead(notificationId: string): Promise<void> {
+    try {
+      await this.request(`/chat/notifications/${notificationId}/read`, {
+        method: 'PATCH',
+      });
+    } catch (err: any) {
+      console.warn('Failed to mark notification read in task_db:', err?.message);
+    }
+  }
+
+  /**
+   * Mark all notifications as read for a user in task_db
+   */
+  async markAllNotificationsRead(userId?: string): Promise<void> {
+    try {
+      await this.request('/chat/notifications/mark-all-read', {
+        method: 'POST',
+        body: JSON.stringify({ userId: userId || '5' }),
+      });
+    } catch (err: any) {
+      console.warn('Failed to mark all notifications read in task_db:', err?.message);
+    }
+  }
+}
+
+export const dmsApi = new DmsApiService();

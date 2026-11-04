@@ -1,9 +1,28 @@
 export type Department =
+  | 'admin'
+  | 'program'
+  | 'accounts_and_finance'
+  | 'store'
+  | 'procurements'
+  | 'fund_raising'
+  | 'it'
+  | 'hr'
+  | 'marketing'
+  | 'audio_video'
+  | 'meal'
+  | 'health'
+  | 'executive_office'
+  | 'ceo'
+  | 'internal_audit'
+  | 'crd'
+  | 'aas_lab'
+  // Legacy compatibility fallbacks
   | 'Management'
   | 'Administration'
   | 'Accounts'
   | 'Academics'
-  | 'Maintenance';
+  | 'Maintenance'
+  | string;
 
 export type UserStatus = 'online' | 'offline' | 'away' | 'busy';
 
@@ -17,6 +36,11 @@ export interface User {
   status: UserStatus;
   lastSeen?: string;
   email: string;
+  phone?: string;
+  role?: string;
+  managerId?: string;
+  managerName?: string;
+  directReportIds?: string[];
 }
 
 export type TaskStatus = 'todo' | 'in_progress' | 'under_review' | 'completed' | 'blocked';
@@ -69,14 +93,18 @@ export interface ApprovalRecord {
 
 export interface Task {
   id: string;
-  code: string; // e.g. "TASK-101"
+  code: string; // e.g. "TASK-329"
   title: string;
   description: string;
   department: Department;
   status: TaskStatus;
   priority: TaskPriority;
   dueDate: string; // ISO or date string
+  startDate?: string;
+  completedDate?: string;
   assigneeIds: string[];
+  reporterIds?: string[];
+  progress?: number;
   creatorId: string;
   createdAt: string;
   updatedAt: string;
@@ -136,6 +164,7 @@ export interface Chat {
   department?: Department;
   isReadOnly?: boolean; // For announcements
   isPinned?: boolean;
+  linkedTaskId?: string; // Explicit DMS task linked to this conversation
   lastMessage?: {
     text: string;
     timestamp: string;

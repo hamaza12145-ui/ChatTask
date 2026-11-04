@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { MessageBubble } from './MessageBubble';
-import { Task } from '../../types';
+import { Task, TaskAttachment } from '../../types';
 import {
   ArrowLeft,
   Info,
@@ -32,6 +32,7 @@ export const ChatWindow: React.FC = () => {
     openCreateTaskModal,
     setIsGroupInfoOpen,
     setIsTasksInChatOpen,
+    openTaskDrawer,
     tasks,
     typingStatus,
     deviceView,
@@ -41,15 +42,24 @@ export const ChatWindow: React.FC = () => {
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
+  const [pendingAttachment, setPendingAttachment] = useState<TaskAttachment | null>(null);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const attachmentMenuRef = useRef<HTMLDivElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const docInputRef = useRef<HTMLInputElement>(null);
 
-  // Filter tasks created from this chat
-  const chatTasks = tasks.filter((t) => t.sourceChatId === activeChat?.id);
+  // Linked task and tasks associated with this chat
+  const linkedTask = activeChat?.linkedTaskId ? tasks.find((t) => t.id === activeChat.linkedTaskId) : null;
+  const chatTasks = tasks.filter(
+    (t) =>
+      t.sourceChatId === activeChat?.id ||
+      activeChat?.linkedTaskId === t.id ||
+      activeChat?.id === `task_chat_${t.id}`
+  );
 
   // Auto scroll to bottom
   const scrollToBottom = () => {
@@ -136,19 +146,112 @@ export const ChatWindow: React.FC = () => {
     inputRef.current?.focus();
   };
 
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, category: 'image' | 'doc') => {
+    const file = e.target.files?.[0];
+    if (!file || !activeChat) return;
+
+    // Reset input so the same file can be selected again
+    e.target.value = '';
+
+    let attType: 'image' | 'doc' | 'pdf' | 'spreadsheet' = 'doc';
+    if (file.type.startsWith('image/')) {
+      attType = 'image';
+    } else if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      attType = 'pdf';
+    } else if (
+      file.name.toLowerCase().endsWith('.xls') ||
+      file.name.toLowerCase().endsWith('.xlsx') ||
+      file.name.toLowerCase().endsWith('.csv')
+    ) {
+      attType = 'spreadsheet';
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const resultUrl = reader.result as string;
+      setPendingAttachment({
+        id: 'att_' + Date.now(),
+        name: file.name,
+        type: attType,
+        url: resultUrl,
+        size: formatFileSize(file.size),
+      });
+      setShowAttachmentMenu(false);
+      inputRef.current?.focus();
+    };
+
+    reader.onerror = () => {
+      const objectUrl = URL.createObjectURL(file);
+      setPendingAttachment({
+        id: 'att_' + Date.now(),
+        name: file.name,
+        type: attType,
+        url: objectUrl,
+        size: formatFileSize(file.size),
+      });
+      setShowAttachmentMenu(false);
+      inputRef.current?.focus();
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.indexOf('image') !== -1) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          const reader = new FileReader();
+          reader.onload = () => {
+            setPendingAttachment({
+              id: 'att_' + Date.now(),
+              name: file.name || `Pasted_Image_${new Date().toISOString().slice(0, 10)}.png`,
+              type: 'image',
+              url: reader.result as string,
+              size: formatFileSize(file.size),
+            });
+          };
+          reader.readAsDataURL(file);
+          break;
+        }
+      }
+    }
+  };
+
   const handleSendMessage = () => {
-    if (!inputText.trim()) return;
+    if ((!inputText.trim() && !pendingAttachment) || !activeChat) return;
 
     let fullText = inputText.trim();
     if (taskQuoteForComposer) {
       fullText = `[Ref: ${taskQuoteForComposer.code} - ${taskQuoteForComposer.title}]\n${fullText}`;
     }
 
+    if (!fullText && pendingAttachment) {
+      fullText = pendingAttachment.type === 'image'
+        ? `Attached photo: ${pendingAttachment.name}`
+        : `Attached document: ${pendingAttachment.name}`;
+    }
+
     sendMessage(activeChat.id, fullText, {
       replyTo: replyMessage || undefined,
+      attachment: pendingAttachment || undefined,
     });
 
     setInputText('');
+    setPendingAttachment(null);
     setReplyMessage(null);
     setTaskQuoteForComposer(null);
     setShowMentionMenu(false);
@@ -160,31 +263,6 @@ export const ChatWindow: React.FC = () => {
     sendMessage(activeChat.id, '', {
       voiceDuration: duration,
     });
-  };
-
-  const handleAttachDemoFile = (type: 'image' | 'doc') => {
-    setShowAttachmentMenu(false);
-    if (type === 'image') {
-      sendMessage(activeChat.id, 'Attached photo inspection voucher', {
-        attachment: {
-          id: 'att_' + Date.now(),
-          name: 'site-inspection-reading.jpg',
-          type: 'image',
-          url: 'https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=800&auto=format&fit=crop&q=80',
-          size: '1.8 MB',
-        },
-      });
-    } else {
-      sendMessage(activeChat.id, 'Attached official specification sheet', {
-        attachment: {
-          id: 'att_' + Date.now(),
-          name: 'Operations_SOP_Q4_Revision.pdf',
-          type: 'pdf',
-          url: '#',
-          size: '3.2 MB',
-        },
-      });
-    }
   };
 
   const isCurrentChatTyping = typingStatus[activeChat.id];
@@ -297,6 +375,28 @@ export const ChatWindow: React.FC = () => {
         </div>
       </div>
 
+            {/* Linked Task Banner if chat is dedicated to a DMS task */}
+      {linkedTask && (
+        <div className="px-4 py-2 bg-indigo-50/90 dark:bg-indigo-950/40 border-b border-indigo-200/70 dark:border-indigo-900/50 flex items-center justify-between text-xs shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/80 px-2 py-0.5 rounded text-[11px] shrink-0">
+              {linkedTask.code}
+            </span>
+            <span className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+              {linkedTask.title}
+            </span>
+            <span className="text-[10px] text-slate-500 uppercase font-bold px-1.5 py-0.5 rounded bg-slate-200/60 dark:bg-slate-800 shrink-0">
+              {linkedTask.status.replace('_', ' ')}
+            </span>
+          </div>
+          <button
+            onClick={() => openTaskDrawer(linkedTask.id)}
+            className="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline text-[11px] shrink-0 ml-2 cursor-pointer"
+          >
+            View Task Details &rarr;
+          </button>
+        </div>
+      )}
       {/* Messages Scroll Area */}
       <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-1">
         {chatMessages.length === 0 ? (
@@ -362,6 +462,42 @@ export const ChatWindow: React.FC = () => {
             <button
               onClick={() => setTaskQuoteForComposer(null)}
               className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Pending Attachment Preview Bar */}
+        {pendingAttachment && (
+          <div className="mb-2 p-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs animate-in slide-in-from-bottom-2 duration-150">
+            <div className="flex items-center gap-2.5 min-w-0 pr-2">
+              {pendingAttachment.type === 'image' ? (
+                <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700 bg-slate-200 dark:bg-slate-900">
+                  <img
+                    src={pendingAttachment.url}
+                    alt={pendingAttachment.name}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              ) : (
+                <div className="w-10 h-10 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+                  <FileText className="w-5 h-5" />
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="font-semibold text-slate-800 dark:text-slate-100 truncate text-xs">
+                  {pendingAttachment.name}
+                </p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                  {pendingAttachment.size} • Ready to send
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setPendingAttachment(null)}
+              className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+              title="Remove attachment"
             >
               <X className="w-4 h-4" />
             </button>
@@ -455,22 +591,44 @@ export const ChatWindow: React.FC = () => {
                 <Paperclip className="w-4 h-4" />
               </button>
 
+              {/* Hidden file inputs for real device file selection */}
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => handleFileSelect(e, 'image')}
+              />
+              <input
+                ref={docInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,.rar,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                className="hidden"
+                onChange={(e) => handleFileSelect(e, 'doc')}
+              />
+
               {/* Attachment popover */}
               {showAttachmentMenu && (
-                <div className="absolute bottom-full left-0 mb-2 w-48 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-800 p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 text-xs">
+                <div className="absolute bottom-full left-0 mb-2 w-52 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-800 p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 text-xs">
                   <button
-                    onClick={() => handleAttachDemoFile('image')}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-left rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200"
+                    onClick={() => {
+                      setShowAttachmentMenu(false);
+                      photoInputRef.current?.click();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors"
                   >
                     <ImageIcon className="w-4 h-4 text-emerald-500" />
-                    <span>Attach Photo</span>
+                    <span className="font-medium">Attach Photo</span>
                   </button>
                   <button
-                    onClick={() => handleAttachDemoFile('doc')}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-left rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200"
+                    onClick={() => {
+                      setShowAttachmentMenu(false);
+                      docInputRef.current?.click();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors"
                   >
                     <FileText className="w-4 h-4 text-indigo-500" />
-                    <span>Attach Document</span>
+                    <span className="font-medium">Attach Document</span>
                   </button>
                 </div>
               )}
@@ -481,9 +639,10 @@ export const ChatWindow: React.FC = () => {
               <input
                 ref={inputRef}
                 type="text"
-                placeholder="Type a message or use @ to mention..."
+                placeholder={pendingAttachment ? "Add a message or caption (optional)..." : "Type a message or use @ to mention..."}
                 value={inputText}
                 onChange={handleInputChange}
+                onPaste={handlePaste}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
@@ -495,7 +654,7 @@ export const ChatWindow: React.FC = () => {
             </div>
 
             {/* Voice note simulation trigger */}
-            {!inputText.trim() && (
+            {!inputText.trim() && !pendingAttachment && (
               <button
                 onClick={() => setIsRecordingVoice(true)}
                 className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors shrink-0"
@@ -508,7 +667,7 @@ export const ChatWindow: React.FC = () => {
             {/* Send Button */}
             <button
               onClick={handleSendMessage}
-              disabled={!inputText.trim()}
+              disabled={!inputText.trim() && !pendingAttachment}
               className="p-2 sm:px-3.5 sm:py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:hover:bg-indigo-600 text-white font-semibold text-xs transition-colors flex items-center gap-1.5 shrink-0 shadow-xs"
               title="Send message"
             >

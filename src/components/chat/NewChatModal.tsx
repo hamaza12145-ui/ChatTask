@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { Department, User } from '../../types';
+import { formatDepartmentName } from '../../services/dmsApi';
 import { X, Search, Check, Users, MessageSquare } from 'lucide-react';
 
 export const NewChatModal: React.FC = () => {
@@ -18,18 +19,19 @@ export const NewChatModal: React.FC = () => {
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [groupName, setGroupName] = useState('');
 
-  if (!isNewChatModalOpen) return null;
-
-  const departments: Department[] = [
-    'Management',
-    'Administration',
-    'Accounts',
-    'Academics',
-    'Maintenance',
-  ];
-
   // Other users (excluding currentUser)
   const availableUsers = users.filter((u) => u.id !== currentUser.id);
+
+  // Dynamically compute departments present in the users list
+  const departments = useMemo(() => {
+    const depts = new Set<string>();
+    availableUsers.forEach((u) => {
+      if (u.department) depts.add(u.department.toLowerCase());
+    });
+    return Array.from(depts);
+  }, [availableUsers]);
+
+  if (!isNewChatModalOpen) return null;
 
   const toggleSelectUser = (userId: string) => {
     setSelectedUserIds((prev) =>
@@ -45,7 +47,6 @@ export const NewChatModal: React.FC = () => {
       const targetUser = users.find((u) => u.id === selectedUserIds[0]);
       if (!targetUser) return;
 
-      // Check if 1:1 chat already exists
       const existing = chats.find(
         (c) =>
           c.type === 'direct' &&
@@ -59,22 +60,23 @@ export const NewChatModal: React.FC = () => {
         return;
       }
 
-      // Create new direct chat
-      createChat({
+      const newChatId = createChat({
         name: targetUser.name,
         type: 'direct',
         participantIds: [targetUser.id],
         department: targetUser.department,
       });
+      setActiveChatId(newChatId);
     } else {
       // Group chat
-      const finalName = groupName.trim() || `Group (${selectedUserIds.length + 1} members)`;
-      createChat({
+      const finalName = groupName.trim() || `Team (${selectedUserIds.length + 1} members)`;
+      const newChatId = createChat({
         name: finalName,
         type: 'group',
         participantIds: selectedUserIds,
         department: currentUser.department,
       });
+      setActiveChatId(newChatId);
     }
 
     setIsNewChatModalOpen(false);
@@ -87,59 +89,59 @@ export const NewChatModal: React.FC = () => {
         <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
           <div>
             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-              New Conversation
+              New DMS Conversation
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Select one person for a direct message, or multiple for a group.
+              Select one colleague for direct chat, or multiple for department group discussion.
             </p>
           </div>
           <button
             onClick={() => setIsNewChatModalOpen(false)}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Group Name input if multi-select */}
-        {selectedUserIds.length > 1 && (
-          <div className="px-5 pt-3 animate-in fade-in">
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Group Subject
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. Cross-Department Sync, Sprint 43..."
-              value={groupName}
-              onChange={(e) => setGroupName(e.target.value)}
-              className="w-full px-3 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none"
-            />
-          </div>
-        )}
-
-        {/* Search Input */}
-        <div className="p-4 pb-2">
+        {/* Search & Group Name input if > 1 selected */}
+        <div className="p-4 border-b border-slate-100 dark:border-slate-800 space-y-3">
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Search colleagues by name or role..."
+              placeholder="Search DMS users by name, designation, or email..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-transparent focus:border-indigo-500 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none"
+              className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-emerald-500"
             />
           </div>
+
+          {selectedUserIds.length > 1 && (
+            <div className="animate-in fade-in duration-150">
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Group Discussion Title
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Program Field Verification Team..."
+                value={groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+                className="w-full px-3 py-1.5 text-xs rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+          )}
         </div>
 
-        {/* People Picker Grouped by Department */}
-        <div className="flex-1 overflow-y-auto px-4 py-2 space-y-3">
+        {/* User Directory Grouped by Real DMS Department */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {departments.map((dept) => {
             const deptUsers = availableUsers
-              .filter((u) => u.department === dept)
+              .filter((u) => u.department?.toLowerCase() === dept)
               .filter(
                 (u) =>
                   u.name.toLowerCase().includes(search.toLowerCase()) ||
-                  u.designation.toLowerCase().includes(search.toLowerCase())
+                  u.designation.toLowerCase().includes(search.toLowerCase()) ||
+                  u.email.toLowerCase().includes(search.toLowerCase())
               );
 
             if (deptUsers.length === 0) return null;
@@ -147,7 +149,7 @@ export const NewChatModal: React.FC = () => {
             return (
               <div key={dept} className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 overflow-hidden">
                 <div className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider p-2.5 bg-slate-100/70 dark:bg-slate-800/60 flex items-center justify-between">
-                  <span>{dept} Department</span>
+                  <span>{formatDepartmentName(dept)} Department</span>
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700 font-semibold">
                     {deptUsers.length}
                   </span>
@@ -157,10 +159,7 @@ export const NewChatModal: React.FC = () => {
                     const isSelected = selectedUserIds.includes(user.id);
 
                     return (
-                      <div
-                        key={user.id}
-                        className="relative group"
-                      >
+                      <div key={user.id} className="relative group">
                         <button
                           onClick={() => toggleSelectUser(user.id)}
                           className={`w-full flex items-center justify-between p-2 rounded-lg text-left transition-colors cursor-pointer ${
@@ -192,7 +191,7 @@ export const NewChatModal: React.FC = () => {
                             </div>
                           </div>
 
-                          {/* Checkbox circle */}
+                          {/* Checkbox */}
                           <div
                             className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors shrink-0 ${
                               isSelected
@@ -200,22 +199,9 @@ export const NewChatModal: React.FC = () => {
                                 : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800'
                             }`}
                           >
-                            {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                            {isSelected && <Check className="w-3.5 h-3.5" />}
                           </div>
                         </button>
-
-                        {/* Floating Hover Card with Designation */}
-                        <div className="hidden group-hover:block absolute z-50 left-1/2 -translate-x-1/2 bottom-full mb-1.5 w-60 p-2.5 rounded-xl bg-slate-900 text-white shadow-xl border border-slate-700 pointer-events-none animate-in fade-in">
-                          <span className="text-[9px] text-slate-400 uppercase tracking-wider block font-semibold">
-                            {user.department} Department
-                          </span>
-                          <span className="text-xs font-bold text-amber-300 block mt-0.5 leading-snug">
-                            {user.designation}
-                          </span>
-                          <span className="text-[10px] text-slate-300 block mt-1 truncate">
-                            {user.email}
-                          </span>
-                        </div>
                       </div>
                     );
                   })}
@@ -226,29 +212,29 @@ export const NewChatModal: React.FC = () => {
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-950/60">
-          <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+        <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 flex items-center justify-between">
+          <span className="text-xs text-slate-500 dark:text-slate-400">
             {selectedUserIds.length === 0
-              ? 'Select at least 1 person'
-              : `${selectedUserIds.length} person selected`}
+              ? 'No colleagues selected'
+              : `${selectedUserIds.length} ${selectedUserIds.length === 1 ? 'colleague' : 'colleagues'} selected`}
+          </span>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsNewChatModalOpen(false)}
+              className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleStartConversation}
+              disabled={selectedUserIds.length === 0}
+              className="px-4 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors disabled:opacity-40 cursor-pointer flex items-center gap-1.5"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>{selectedUserIds.length > 1 ? 'Start Group Discussion' : 'Start Chat'}</span>
+            </button>
           </div>
-          <button
-            onClick={handleStartConversation}
-            disabled={selectedUserIds.length === 0}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-semibold shadow-sm transition-colors"
-          >
-            {selectedUserIds.length > 1 ? (
-              <>
-                <Users className="w-3.5 h-3.5" />
-                <span>Create Group</span>
-              </>
-            ) : (
-              <>
-                <MessageSquare className="w-3.5 h-3.5" />
-                <span>Start Chat</span>
-              </>
-            )}
-          </button>
         </div>
       </div>
     </div>
