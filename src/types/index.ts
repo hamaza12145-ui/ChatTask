@@ -149,6 +149,10 @@ export interface ChatMessage {
   attachment?: TaskAttachment;
   voiceDuration?: number; // In seconds
   mentions?: string[]; // user IDs
+  isEncrypted?: boolean;
+  keyVersion?: number;
+  isDecrypted?: boolean;
+  rawCiphertext?: string;
 }
 
 export type ChatType = 'direct' | 'group' | 'channel' | 'announcement';

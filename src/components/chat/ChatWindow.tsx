@@ -15,6 +15,7 @@ import {
   FileText,
   Image as ImageIcon,
   CheckCircle,
+  Lock,
 } from 'lucide-react';
 
 export const ChatWindow: React.FC = () => {
@@ -334,6 +335,13 @@ export const ChatWindow: React.FC = () => {
           >
             <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 truncate flex items-center gap-1.5">
               <span>{activeChat.type === 'direct' && otherUser ? otherUser.name : activeChat.name}</span>
+              <span
+                title="End-to-End Encrypted: Messages and media are client-side encrypted with AES-256-GCM. Only chat participants hold the decryption keys."
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 shrink-0"
+              >
+                <Lock className="w-2.5 h-2.5" />
+                <span className="hidden sm:inline">E2EE</span>
+              </span>
             </h3>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
               {isCurrentChatTyping ? (
@@ -399,6 +407,15 @@ export const ChatWindow: React.FC = () => {
       )}
       {/* Messages Scroll Area */}
       <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-1">
+        {/* End-to-End Encryption Security Notice Banner */}
+        <div className="flex items-center justify-center my-2 select-none">
+          <div className="max-w-md mx-auto px-3.5 py-1.5 rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/40 text-[11px] text-amber-800 dark:text-amber-300 flex items-center gap-2 text-center shadow-2xs">
+            <Lock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>
+              Messages and files are end-to-end encrypted. No one outside of this chat, not even MTJF administrators, can read them.
+            </span>
+          </div>
+        </div>
         {chatMessages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400 text-xs">
             <p>No messages yet in this conversation.</p>

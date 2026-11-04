@@ -77,7 +77,7 @@ export const ChatList: React.FC = () => {
       <div className="p-3.5 pb-2 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight">
-            DMS Communications
+            MTJF Communications
           </h2>
           <p className="text-[11px] text-slate-500 dark:text-slate-400">
             Team Messenger &amp; Tasking Sync

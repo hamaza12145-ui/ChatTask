@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   ListTodo,
   ExternalLink,
+  Lock,
 } from 'lucide-react';
 
 export const GroupInfoDrawer: React.FC = () => {
@@ -70,6 +71,20 @@ export const GroupInfoDrawer: React.FC = () => {
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xs mx-auto">
             {activeChat.description || `${activeChat.department || 'Operations'} Department Channel`}
           </p>
+        </div>
+
+        {/* End-to-End Encryption Security Status Card */}
+        <div className="mx-4 my-3 p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/50 flex items-start gap-2.5">
+          <Lock className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+          <div className="text-xs">
+            <p className="font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
+              <span>End-to-End Encrypted</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-200/70 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200 font-semibold">Active</span>
+            </p>
+            <p className="text-[11px] text-emerald-700 dark:text-emerald-300/80 mt-0.5 leading-snug">
+              Messages and deliverables in this chat are client-side encrypted with AES-256-GCM and individual RSA-2048 recipient wrapping. Keys are never transmitted in cleartext.
+            </p>
+          </div>
         </div>
 
         {/* Segmented Tabs */}

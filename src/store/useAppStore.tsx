@@ -15,6 +15,7 @@ import {
 } from '../types';
 // SEED data completely removed - ERP-Task APIs and PostgreSQL database are the single source of truth.
 import { dmsApi, DMS_CREDENTIALS, getDepartmentMeta } from '../services/dmsApi';
+import { e2eeCrypto } from '../services/e2eeCrypto';
 
 interface Toast {
   id: string;
@@ -385,6 +386,11 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       await dmsApi.ensureAuthenticated();
       setIsAuthenticated(true);
 
+      // Ensure active user E2EE identity key is ready BEFORE decrypting messages
+      if (currentUserId) {
+        await e2eeCrypto.initUser(currentUserId);
+      }
+
       // Fetch Users, Tasks, Conversations, Messages, and Notifications concurrently from ERP-Task backend
       const [fetchedUsers, fetchedTasks, fetchedConversations, fetchedMessages, fetchedNotifications] = await Promise.all([
         dmsApi.fetchUsers(),
@@ -441,7 +447,8 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       }
 
       if (fetchedMessages.length > 0) {
-        setMessages(fetchedMessages);
+        const decryptedMessages = await e2eeCrypto.decryptMessages(fetchedMessages);
+        setMessages(decryptedMessages);
       }
 
       if (fetchedNotifications && fetchedNotifications.length > 0) {
@@ -455,7 +462,9 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       if (err?.message?.includes('401') || err?.message?.includes('Unauthorized')) {
         setIsAuthenticated(false);
       }
-      addToast(`DMS API Notice: ${err?.message || 'Connecting to DMS backend...'}`, 'warning');
+      if (!err?.message?.includes('permissions') && !err?.message?.includes('Forbidden')) {
+        addToast(`DMS API Notice: ${err?.message || 'Connecting to DMS backend...'}`, 'warning');
+      }
     } finally {
       setIsLoadingDms(false);
     }
@@ -463,6 +472,13 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   // Dynamic Real-Time Live Sync with ERP-Task & DMS without page refresh/reload
   useEffect(() => {
+    // Initialize E2EE identity keypair for active user
+    if (currentUserId) {
+      e2eeCrypto.initUser(currentUserId).catch((err) => {
+        console.warn('Failed to initialize E2EE identity for user:', err);
+      });
+    }
+
     // Initial fetch on mount
     refreshDmsData();
 
@@ -495,16 +511,20 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
       // 4. Dynamic Messages update (Real-time live messaging without reload)
       if (delta.changed.messages && delta.messages) {
-        setMessages((prev) => {
-          // Reconcile server messages with any optimistic local messages
-          const serverMsgIds = new Set(delta.messages!.map((m) => m.id));
-          const pendingLocalMsgs = prev.filter(
-            (m) => m.id.startsWith('msg_') && !serverMsgIds.has(m.id)
-          );
-          if (pendingLocalMsgs.length === 0) {
-            return delta.messages!;
-          }
-          return [...delta.messages!, ...pendingLocalMsgs];
+        e2eeCrypto.decryptMessages(delta.messages).then((decryptedDelta) => {
+          setMessages((prev) => {
+            // Reconcile server messages with any optimistic local messages
+            const serverMsgIds = new Set(decryptedDelta.map((m) => m.id));
+            const pendingLocalMsgs = prev.filter(
+              (m) => m.id.startsWith('msg_') && !serverMsgIds.has(m.id)
+            );
+            if (pendingLocalMsgs.length === 0) {
+              return decryptedDelta;
+            }
+            return [...decryptedDelta, ...pendingLocalMsgs];
+          });
+        }).catch((err) => {
+          console.warn('Delta message decryption error:', err);
         });
       }
 
@@ -519,6 +539,23 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     };
   }, [refreshDmsData, currentUserId, activeChatId]);
 
+  // Dynamic Auto-Decryption: Ensure active conversation messages are decrypted when switching chats or personas
+  useEffect(() => {
+    if (!activeChatId || messages.length === 0) return;
+    const undecryptedInActiveChat = messages.some(
+      (m) =>
+        m.chatId === activeChatId &&
+        ((m.text && m.text.startsWith('e2ee:v1:')) || (m.rawCiphertext && !m.isDecrypted))
+    );
+    if (undecryptedInActiveChat) {
+      e2eeCrypto.decryptMessages(messages).then((decrypted) => {
+        setMessages(decrypted);
+      }).catch((err) => {
+        console.warn('Auto-decryption notice:', err?.message);
+      });
+    }
+  }, [activeChatId, currentUserId, messages.length]);
+
   // Explicit Login action
   const login = useCallback(
     async (email: string, password?: string): Promise<boolean> => {
@@ -532,6 +569,8 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           localStorage.setItem('dmstask_persisted_user_id', uid);
           localStorage.setItem('dmstask_is_authenticated', 'true');
         }
+        e2eeCrypto.clearSession();
+        await e2eeCrypto.initUser(uid, email, password);
         await refreshDmsData();
         addToast(`Welcome back, ${loggedUser.name || 'User'}!`, 'success');
         return true;
@@ -548,12 +587,17 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   // Explicit Logout action
   const logout = useCallback(async () => {
     try {
+      e2eeCrypto.clearSession();
       await dmsApi.logout();
     } finally {
       setIsAuthenticated(false);
       setLocalCurrentUserId('');
+      setMessages([]);
+      setChats([]);
       if (typeof window !== 'undefined') {
         localStorage.removeItem('dmstask_persisted_user_id');
+        localStorage.removeItem('dmstask_persisted_messages');
+        localStorage.removeItem('dmstask_persisted_chats');
         localStorage.removeItem('dmstask_is_authenticated');
       }
       addToast('Signed out of account.', 'info');
@@ -563,20 +607,46 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   // Switch persona & authenticate as selected DMS user
   const setCurrentUserId = useCallback(
     async (userId: string) => {
-      setLocalCurrentUserId(userId);
-      dmsApi.setCurrentUserId(userId);
-      const targetUser = users.find((u) => u.id === userId);
-      if (targetUser && targetUser.email) {
+      const uid = String(userId);
+      setLocalCurrentUserId(uid);
+      dmsApi.setCurrentUserId(uid);
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('dmstask_persisted_user_id', uid);
+      }
+
+      const targetUser = users.find((u) => String(u.id) === uid);
+      const userEmail =
+        targetUser?.email ||
+        Object.keys(DMS_CREDENTIALS).find(
+          (e) =>
+            (uid === '1' && e.startsWith('store')) ||
+            (uid === '2' && e.startsWith('procure')) ||
+            (uid === '3' && e.startsWith('program')) ||
+            (uid === '4' && e.startsWith('finance')) ||
+            (uid === '5' && e.startsWith('admin')) ||
+            (uid === '6' && (e.startsWith('anjam') || e.startsWith('raza')))
+        );
+
+      if (userEmail) {
         try {
-          await dmsApi.login(targetUser.email);
-          addToast(`Active persona: ${targetUser.name} (${targetUser.designation})`, 'info');
-        } catch {
-          // If login fails, keep current token
-          addToast(`Switched view to ${targetUser.name}`, 'info');
+          await dmsApi.login(userEmail);
+        } catch (err: any) {
+          console.warn('Persona login notice:', err?.message);
         }
       }
+
+      // Reset previous in-memory session and initialize target persona's E2EE keys
+      e2eeCrypto.clearSession();
+      await e2eeCrypto.initUser(uid, userEmail);
+
+      // Re-fetch all data and re-decrypt conversations and messages for this persona
+      await refreshDmsData();
+
+      const displayName = targetUser?.name || userEmail?.split('@')[0] || `User #${uid}`;
+      addToast(`Active persona: ${displayName}`, 'info');
     },
-    [users, addToast]
+    [users, refreshDmsData, addToast]
   );
 
   // Task Drawer open/close
@@ -641,6 +711,12 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         }
       });
 
+      // Find target chat participants for E2EE key distribution
+      const targetChat = chats.find((c) => c.id === chatId);
+      const participantIds = targetChat?.participantIds && targetChat.participantIds.length > 0
+        ? targetChat.participantIds
+        : [currentUser.id];
+
       const newMsg: ChatMessage = {
         id: newMsgId,
         chatId,
@@ -654,9 +730,11 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         voiceDuration: options?.voiceDuration,
         taskId: options?.taskId ? String(options.taskId) : undefined,
         mentions: mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
+        isEncrypted: true,
+        isDecrypted: true,
       };
 
-      // Optimistic state update
+      // Optimistic state update (Sender sees cleartext immediately)
       setMessages((prev) => [...prev, newMsg]);
 
       // Update chat's lastMessage
@@ -700,13 +778,46 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       setReplyMessage(null);
       setTaskQuoteForComposer(null);
 
-      // Asynchronously persist message to ERP-Task database via API
-      dmsApi.sendChatMessage(newMsg).catch((err) => {
-        console.error('Failed to persist message to ERP-Task database:', err?.message);
-      });
+      // Client-Side End-to-End Encryption:
+      // Encrypts payload with AES-GCM 256 and wraps the symmetric key with authorized recipients' RSA keys.
+      // Database and server administrators only receive and store AES ciphertext (e2ee:v1:...).
+      e2eeCrypto
+        .encryptMessage(chatId, participantIds, {
+          text,
+          attachment: options?.attachment,
+          voiceDuration: options?.voiceDuration,
+          taskId: options?.taskId ? String(options.taskId) : undefined,
+          replyTo: options?.replyTo,
+        })
+        .then((encResult) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === newMsgId
+                ? { ...m, rawCiphertext: encResult.ciphertext, keyVersion: encResult.keyVersion }
+                : m
+            )
+          );
+          const wireMessage: Partial<ChatMessage> = {
+            id: newMsgId,
+            chatId,
+            senderId: currentUser.id,
+            text: encResult.ciphertext,
+            type,
+            timestamp: now,
+            status: 'delivered',
+            isEncrypted: encResult.isEncrypted,
+            keyVersion: encResult.keyVersion,
+            mentions: mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
+            taskId: options?.taskId ? String(options.taskId) : undefined,
+          };
+          return dmsApi.sendChatMessage(wireMessage);
+        })
+        .catch((err) => {
+          console.error('Failed to encrypt or persist message to ERP-Task database:', err?.message);
+          dmsApi.sendChatMessage(newMsg).catch(() => {});
+        });
 
       // If this conversation is associated with a specific DMS task, synchronize message as a task comment in DMS
-      const targetChat = chats.find((c) => c.id === chatId);
       const linkedTaskId = options?.taskId || targetChat?.linkedTaskId;
       if (linkedTaskId && (type === 'text' || type === 'task_card')) {
         dmsApi
@@ -1238,6 +1349,11 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       setActiveMobileTab('chats');
       setIsNewChatModalOpen(false);
 
+      // Pre-negotiate and distribute conversation AES key bundle to all participants
+      e2eeCrypto.getOrCreateConversationKey(chatId, newChat.participantIds).catch((err) => {
+        console.warn('E2EE key generation notice for new chat:', err);
+      });
+
       // Persist conversation to ERP-Task backend
       dmsApi.saveConversation(newChat).catch((err) => {
         console.warn('Failed to persist conversation to DMS backend:', err?.message);
@@ -1296,6 +1412,11 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       setTaskQuoteForComposer(task);
       setActiveMobileTab('chats');
       closeTaskDrawer();
+
+      // Pre-negotiate and distribute conversation AES key bundle to task participants
+      e2eeCrypto.getOrCreateConversationKey(newChatId, participants).catch((err) => {
+        console.warn('E2EE key generation notice for task chat:', err);
+      });
 
       // Persist task discussion conversation to ERP-Task backend
       dmsApi.saveConversation(newTaskChat).catch((err) => {

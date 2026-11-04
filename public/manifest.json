@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "AlHasanain School System",
-  "short_name": "AlHasanain",
-  "description": "AlHasanain School System High School Staff Messenger and Task Management Portal",
+  "name": "MTJF Communications",
+  "short_name": "MTJF Comm",
+  "description": "MTJF Communications & Enterprise Task Management Portal",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

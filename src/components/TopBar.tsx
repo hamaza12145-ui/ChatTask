@@ -36,11 +36,11 @@ export const TopBar: React.FC = () => {
       <div className="flex items-center gap-3 shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-emerald-700 flex items-center justify-center text-white shadow-xs font-black text-xs tracking-tighter">
-            DMS
+            MTJF
           </div>
           <div className="flex flex-col">
             <span className="text-sm sm:text-base font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap leading-tight">
-              DMS Communication
+              MTJF Communications
             </span>
             <div className="flex items-center gap-2">
               <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold tracking-wide uppercase leading-none">

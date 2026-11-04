@@ -18,6 +18,7 @@ export const DMS_CREDENTIALS: Record<string, string> = {
   'program@example.com': 'program%1123',
   'finance@example.com': 'finance%1123',
   'anjam@example.com': 'admin%1123',
+  'raza.ali36@mtjf.org': 'admin%1123',
 };
 
 // Department metadata & friendly labels for all official DMS departments
@@ -712,7 +713,7 @@ class DmsApiService {
   /**
    * Authorized request helper
    */
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  public async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     let token = this.getToken();
     if (!token) {
       token = await this.ensureAuthenticated();
@@ -754,8 +755,29 @@ class DmsApiService {
    * Fetch all registered DMS users from DMS API
    */
   async fetchUsers(): Promise<User[]> {
-    const res = await this.request<{ success?: boolean; data: any[] }>('/users?page=1&pageSize=100');
-    const dmsUsers = res.data || [];
+    let dmsUsers: any[] = [];
+
+    // 1. First try /chat/users (accessible to all authenticated team members)
+    try {
+      const chatRes = await this.request<{ success?: boolean; data: any[] }>('/chat/users').catch(() => null);
+      if (chatRes && Array.isArray(chatRes.data) && chatRes.data.length > 0) {
+        dmsUsers = chatRes.data;
+      }
+    } catch {}
+
+    // 2. Fallback to /users
+    if (dmsUsers.length === 0) {
+      try {
+        const res = await this.request<{ success?: boolean; data: any[] }>('/users?page=1&pageSize=100');
+        dmsUsers = res.data || [];
+      } catch (err: any) {
+        console.warn('Could not list users from /users:', err?.message);
+        if (this.cachedUsers.length > 0) {
+          return this.cachedUsers;
+        }
+        return [];
+      }
+    }
 
     return dmsUsers.map((u: any): User => {
       const rawFullName =
@@ -1329,6 +1351,7 @@ class DmsApiService {
         chatId: m.chatId,
         senderId: String(m.senderId),
         text: m.text || '',
+        rawCiphertext: (m.text && typeof m.text === 'string' && m.text.startsWith('e2ee:v1:')) ? m.text : undefined,
         type: m.type || 'text',
         timestamp: m.timestamp || new Date().toISOString(),
         status: m.status || 'delivered',
@@ -1339,6 +1362,8 @@ class DmsApiService {
         linkedTaskId: m.linkedTaskId ? String(m.linkedTaskId) : undefined,
         mentions: m.mentions || undefined,
         reactions: m.reactions || [],
+        isEncrypted: Boolean(m.isEncrypted || m.is_encrypted),
+        keyVersion: m.keyVersion || m.key_version || 1,
       }));
     } catch (err: any) {
       console.warn('Failed to fetch messages from DMS:', err?.message);
@@ -1352,7 +1377,11 @@ class DmsApiService {
   async sendChatMessage(msg: Partial<ChatMessage>): Promise<ChatMessage> {
     const res = await this.request<{ success?: boolean; data: any }>('/chat/messages', {
       method: 'POST',
-      body: JSON.stringify(msg),
+      body: JSON.stringify({
+        ...msg,
+        isEncrypted: msg.isEncrypted ?? false,
+        keyVersion: msg.keyVersion ?? 1,
+      }),
     });
     this.broadcastMutation('messages');
     const m = res.data;
@@ -1371,7 +1400,114 @@ class DmsApiService {
       linkedTaskId: m.linkedTaskId,
       mentions: m.mentions,
       reactions: m.reactions || [],
+      isEncrypted: Boolean(m.isEncrypted || m.is_encrypted),
+      keyVersion: m.keyVersion || m.key_version || 1,
     };
+  }
+
+  // ==========================================
+  // END-TO-END ENCRYPTION (E2EE) API
+  // ==========================================
+
+  /**
+   * Publish user's public identity key to backend
+   */
+  async publishIdentityKey(
+    userId: string,
+    publicKey: string,
+    keyType: string = 'RSA-OAEP',
+    encryptedPrivateKey?: string,
+    salt?: string
+  ): Promise<void> {
+    await this.request('/chat/keys/identity', {
+      method: 'POST',
+      body: JSON.stringify({ userId, publicKey, keyType, encryptedPrivateKey, salt }),
+    });
+  }
+
+  /**
+   * Fetch complete identity record for a user (including client-encrypted private key)
+   */
+  async fetchUserIdentityRecord(userId: string): Promise<any | null> {
+    try {
+      const res = await this.request<{ success: boolean; data: any }>(`/chat/keys/identity/${userId}`);
+      return res?.data || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Fetch public identity key for a user
+   */
+  async fetchUserPublicKey(userId: string): Promise<string | null> {
+    try {
+      const res = await this.request<{ success: boolean; data: any }>(`/chat/keys/identity/${userId}`);
+      return res?.data?.public_key || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Batch fetch public keys for multiple users
+   */
+  async fetchUsersPublicKeys(userIds: string[]): Promise<Record<string, string>> {
+    try {
+      const res = await this.request<{ success: boolean; data: Record<string, string> }>('/chat/keys/identities', {
+        method: 'POST',
+        body: JSON.stringify({ userIds }),
+      });
+      return res?.data || {};
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Distribute conversation key bundles to authorized participants
+   */
+  async publishKeyBundle(
+    conversationId: string,
+    keyVersion: number,
+    bundles: Array<{ userId: string; encryptedKey: string }>
+  ): Promise<void> {
+    await this.request('/chat/keys/bundle', {
+      method: 'POST',
+      body: JSON.stringify({
+        conversationId,
+        keyVersion,
+        bundles,
+      }),
+    });
+  }
+
+  /**
+   * Fetch conversation key bundle for user
+   */
+  async fetchConversationKeyBundle(conversationId: string, version?: number, userId?: string): Promise<any | null> {
+    try {
+      const queryParams = new URLSearchParams();
+      if (version) queryParams.set('version', String(version));
+      if (userId) queryParams.set('userId', String(userId));
+      const qs = queryParams.toString() ? `?${queryParams.toString()}` : '';
+      const res = await this.request<{ success: boolean; data: any }>(`/chat/keys/bundle/${conversationId}${qs}`);
+      return res?.data || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Fetch all conversation key bundles for current user
+   */
+  async fetchAllKeyBundles(): Promise<any[]> {
+    try {
+      const res = await this.request<{ success: boolean; data: any[] }>('/chat/keys/bundles');
+      return res?.data || [];
+    } catch {
+      return [];
+    }
   }
 
   /**

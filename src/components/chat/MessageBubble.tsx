@@ -14,6 +14,8 @@ import {
   Calendar,
   Sparkles,
   ExternalLink,
+  Lock,
+  ShieldAlert,
 } from 'lucide-react';
 
 interface MessageBubbleProps {
@@ -369,9 +371,21 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
             {/* Text content (with right padding so it doesn't overlap the 3-dots button) */}
             {message.text && (
-              <p className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words pr-4">
-                {renderMessageText(message.text)}
-              </p>
+              message.text.includes('🔒 [End-to-End Encrypted Message') ? (
+                <div className="p-2.5 my-1 rounded-lg bg-amber-50 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs flex items-start gap-2 shadow-2xs">
+                  <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold">{message.text}</p>
+                    <p className="text-[10px] text-amber-700/80 dark:text-amber-400/80 mt-0.5">
+                      This private conversation is encrypted with client-side keys. Only active participants can read it.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words pr-4">
+                  {renderMessageText(message.text)}
+                </p>
+              )
             )}
 
             {/* Linked Task Chip (When this message spawned a task) */}
@@ -401,6 +415,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 isOwn ? 'text-emerald-800/80 dark:text-emerald-200/80' : 'text-slate-400 dark:text-slate-500'
               }`}
             >
+              {(message.isEncrypted || message.text?.startsWith('e2ee:')) && (
+                <span title="End-to-End Encrypted" className="opacity-75 inline-flex items-center mr-0.5">
+                  <Lock className="w-2.5 h-2.5" />
+                </span>
+              )}
               <span>{formatTime(message.timestamp)}</span>
               {isOwn && (
                 <span className="inline-flex">
