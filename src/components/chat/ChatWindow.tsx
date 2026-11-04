@@ -335,13 +335,6 @@ export const ChatWindow: React.FC = () => {
           >
             <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 truncate flex items-center gap-1.5">
               <span>{activeChat.type === 'direct' && otherUser ? otherUser.name : activeChat.name}</span>
-              <span
-                title="End-to-End Encrypted: Messages and media are client-side encrypted with AES-256-GCM. Only chat participants hold the decryption keys."
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 shrink-0"
-              >
-                <Lock className="w-2.5 h-2.5" />
-                <span className="hidden sm:inline">E2EE</span>
-              </span>
             </h3>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
               {isCurrentChatTyping ? (

@@ -42,20 +42,6 @@ export const TopBar: React.FC = () => {
             <span className="text-sm sm:text-base font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap leading-tight">
               MTJF Communications
             </span>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold tracking-wide uppercase leading-none">
-                Tasking Module Integration
-              </span>
-              {isDmsConnected && (
-                <span
-                  className="hidden sm:inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/60 shadow-2xs select-none"
-                  title="Dynamically synchronized in real-time with ERP-Task and DMS"
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  Live Sync
-                </span>
-              )}
-            </div>
           </div>
         </div>
 
@@ -150,7 +136,7 @@ export const TopBar: React.FC = () => {
           className="hidden sm:flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-colors shrink-0 cursor-pointer"
         >
           <PlusCircle className="w-3.5 h-3.5" />
-          <span>New DMS Task</span>
+          <span>New Task</span>
         </button>
 
         {/* Theme Toggle */}

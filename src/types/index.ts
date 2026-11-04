@@ -153,6 +153,9 @@ export interface ChatMessage {
   keyVersion?: number;
   isDecrypted?: boolean;
   rawCiphertext?: string;
+  readAt?: string;
+  readBy?: Record<string, string>;
+  deliveredTo?: Record<string, string>;
 }
 
 export type ChatType = 'direct' | 'group' | 'channel' | 'announcement';
@@ -174,6 +177,7 @@ export interface Chat {
     timestamp: string;
     senderId: string;
     type?: MessageType;
+    status?: 'sent' | 'delivered' | 'read';
   };
   unreadCounts: Record<string, number>; // userId -> count
   description?: string;

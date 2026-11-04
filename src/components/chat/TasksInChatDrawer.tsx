@@ -100,7 +100,7 @@ export const TasksInChatDrawer: React.FC = () => {
           {filteredTasks.length === 0 ? (
             <div className="h-64 flex flex-col items-center justify-center text-center p-6 text-slate-400 text-xs">
               <ListTodo className="w-8 h-8 text-slate-300 dark:text-slate-700 mb-2" />
-              <p>No DMS tasks associated with this chat or filter.</p>
+              <p>No tasks associated with this chat or filter.</p>
             </div>
           ) : (
             filteredTasks.map((task) => (
@@ -123,7 +123,7 @@ export const TasksInChatDrawer: React.FC = () => {
             className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"
           >
             <PlusCircle className="w-4 h-4" />
-            <span>Create New DMS Task in this Chat</span>
+            <span>Create New Task in this Chat</span>
           </button>
         </div>
       </div>

@@ -134,7 +134,7 @@ export const TaskDrawer: React.FC = () => {
           <button
             onClick={handleDiscussInChat}
             className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/70 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-300 transition-colors cursor-pointer"
-            title="Open real-time team conversation for this DMS task"
+            title="Open real-time team conversation for this task"
           >
             <MessageCircle className="w-3.5 h-3.5" />
             <span>Discuss in Chat</span>
@@ -216,8 +216,8 @@ export const TaskDrawer: React.FC = () => {
         {/* Action Buttons: Status / Approval Flow */}
         <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 space-y-3">
           <div className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
-            <span>DMS Task Lifecycle</span>
-            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">DMS Synced</span>
+            <span>Task Lifecycle</span>
+            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">Synced</span>
           </div>
 
           {/* Under review banner */}
@@ -230,7 +230,7 @@ export const TaskDrawer: React.FC = () => {
               <p className="text-[11px] opacity-90">
                 {isCreator
                   ? 'You are the creator. Review submitted deliverables and sign off below.'
-                  : `Waiting for ${creator?.name || 'task manager'} to review in DMS.`}
+                  : `Waiting for ${creator?.name || 'task manager'} to review.`}
               </p>
             </div>
           )}
@@ -244,7 +244,7 @@ export const TaskDrawer: React.FC = () => {
                   className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
                 >
                   <UserCheck className="w-4 h-4" />
-                  <span>Approve &amp; Complete in DMS</span>
+                  <span>Approve &amp; Complete</span>
                 </button>
                 <button
                   onClick={() => setShowRejectInput(!showRejectInput)}
@@ -392,7 +392,7 @@ export const TaskDrawer: React.FC = () => {
               >
                 {creator ? creator.avatar : 'AD'}
               </div>
-              <span>{creator ? creator.name : `DMS User #${activeTask.creatorId}`}</span>
+              <span>{creator ? creator.name : `User #${activeTask.creatorId}`}</span>
             </div>
           </div>
 
@@ -413,7 +413,7 @@ export const TaskDrawer: React.FC = () => {
                     >
                       {assignee ? assignee.avatar : 'U'}
                     </div>
-                    <span>{assignee ? assignee.name : `DMS User #${userId}`}</span>
+                    <span>{assignee ? assignee.name : `User #${userId}`}</span>
                   </div>
                 );
               })}            </div>
@@ -523,11 +523,11 @@ export const TaskDrawer: React.FC = () => {
           </div>
         )}
 
-        {/* Comments Thread Synced with DMS */}
+        {/* Comments Thread */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">
-              DMS Comments &amp; Discussion ({activeTask.comments.length})
+              Comments &amp; Discussion ({activeTask.comments.length})
             </h4>
             <span className="text-[10px] text-slate-400 font-mono">API Synced</span>
           </div>
@@ -542,7 +542,7 @@ export const TaskDrawer: React.FC = () => {
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-semibold text-slate-800 dark:text-slate-200">
-                      {commentAuthor ? commentAuthor.name : `DMS User #${comm.userId}`}
+                      {commentAuthor ? commentAuthor.name : `User #${comm.userId}`}
                     </span>
                     <span className="text-[10px] font-mono tabular-nums text-slate-400">
                       {formatDateTime(comm.createdAt)}
@@ -560,7 +560,7 @@ export const TaskDrawer: React.FC = () => {
           <form onSubmit={handleAddComment} className="flex gap-2">
             <input
               type="text"
-              placeholder="Add remark to DMS task..."
+              placeholder="Add remark to task..."
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
               className="flex-1 px-3 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none"
@@ -579,7 +579,7 @@ export const TaskDrawer: React.FC = () => {
         <div>
           <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 mb-2 flex items-center gap-1.5">
             <History className="w-4 h-4 text-slate-400" />
-            <span>DMS Audit History</span>
+            <span>Audit History</span>
           </h4>
           <div className="space-y-2 text-xs">
             {activeTask.activityLog.map((log) => {
@@ -592,7 +592,7 @@ export const TaskDrawer: React.FC = () => {
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <span className="font-medium text-slate-800 dark:text-slate-200">
-                      {actor ? actor.name : `DMS User #${log.userId}`}:
+                      {actor ? actor.name : `User #${log.userId}`}:
                     </span>{' '}
                     <span>{log.action}</span>
                   </div>

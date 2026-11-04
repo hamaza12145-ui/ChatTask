@@ -13,6 +13,8 @@ import {
   Building2,
   ChevronDown,
   Hash,
+  Check,
+  CheckCheck,
 } from 'lucide-react';
 
 export const ChatList: React.FC = () => {
@@ -209,24 +211,54 @@ export const ChatList: React.FC = () => {
                       )}
                     </div>
                     {chat.lastMessage && (
-                      <span className="text-[10px] text-slate-400 font-mono shrink-0 ml-1">
+                      <span
+                        className={`text-[10px] font-mono shrink-0 ml-1 ${
+                          unreadCount > 0
+                            ? 'text-[#25d366] font-semibold'
+                            : 'text-slate-400 dark:text-slate-500'
+                        }`}
+                      >
                         {formatMessageTime(chat.lastMessage.timestamp)}
                       </span>
                     )}
                   </div>
 
                   <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                    <p className="truncate min-w-0 pr-2">
+                    <div className="truncate min-w-0 pr-2 flex items-center">
                       {isTyping ? (
                         <span className="text-emerald-600 dark:text-emerald-400 font-medium italic animate-pulse">
                           {typingStatus[chat.id]} is typing...
                         </span>
                       ) : (
-                        chat.lastMessage?.text || 'No messages yet'
+                        <>
+                          {chat.lastMessage && String(chat.lastMessage.senderId) === String(currentUser.id) && (
+                            <span
+                              className="inline-flex shrink-0 mr-1"
+                              title={
+                                chat.lastMessage.status === 'read'
+                                  ? 'Read'
+                                  : chat.lastMessage.status === 'delivered'
+                                  ? 'Delivered'
+                                  : 'Sent'
+                              }
+                            >
+                              {chat.lastMessage.status === 'read' ? (
+                                <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
+                              ) : chat.lastMessage.status === 'delivered' ? (
+                                <CheckCheck className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+                              ) : (
+                                <Check className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+                              )}
+                            </span>
+                          )}
+                          <span className="truncate">
+                            {chat.lastMessage?.text || 'No messages yet'}
+                          </span>
+                        </>
                       )}
-                    </p>
+                    </div>
                     {unreadCount > 0 && (
-                      <span className="shrink-0 px-1.5 py-0.2 rounded-full bg-emerald-600 text-white text-[10px] font-bold font-mono">
+                      <span className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-[#25d366] text-white text-[11px] font-bold flex items-center justify-center leading-none shadow-xs font-sans">
                         {unreadCount}
                       </span>
                     )}

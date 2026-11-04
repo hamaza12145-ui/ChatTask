@@ -422,13 +422,22 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               )}
               <span>{formatTime(message.timestamp)}</span>
               {isOwn && (
-                <span className="inline-flex">
+                <span
+                  className="inline-flex"
+                  title={
+                    message.status === 'read'
+                      ? 'Read'
+                      : message.status === 'delivered'
+                      ? 'Delivered'
+                      : 'Sent'
+                  }
+                >
                   {message.status === 'read' ? (
                     <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
                   ) : message.status === 'delivered' ? (
-                    <CheckCheck className="w-3.5 h-3.5 opacity-60" />
+                    <CheckCheck className="w-3.5 h-3.5 opacity-70" />
                   ) : (
-                    <Check className="w-3.5 h-3.5 opacity-60" />
+                    <Check className="w-3.5 h-3.5 opacity-70" />
                   )}
                 </span>
               )}

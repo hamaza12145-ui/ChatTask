@@ -33,7 +33,7 @@ export const TaskFormModal: React.FC = () => {
   const [dueTime, setDueTime] = useState('17:00');
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [checklistItems, setChecklistItems] = useState<string[]>([
-    'Verify specifications in DMS',
+    'Verify specifications',
     'Execute implementation',
   ]);
   const [newChecklistText, setNewChecklistText] = useState('');
@@ -75,7 +75,7 @@ export const TaskFormModal: React.FC = () => {
         setDepartment(currentUser.department || 'program');
         setPriority('medium');
         setAssigneeIds([currentUser.id]);
-        setChecklistItems(['Verify specifications in DMS', 'Execute implementation']);
+        setChecklistItems(['Verify specifications', 'Execute implementation']);
         setRequiresApproval(false);
         setProofRequired(false);
       }
@@ -143,15 +143,15 @@ export const TaskFormModal: React.FC = () => {
         <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
           <div>
             <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <span>{taskModalInitialData?.sourceMessageId ? 'Create DMS Task from Message' : 'Create New DMS Task'}</span>
+              <span>{taskModalInitialData?.sourceMessageId ? 'Create Task from Message' : 'Create New Task'}</span>
               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300">
-                DMS API
+                ERP Sync
               </span>
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {taskModalInitialData?.sourceChatId
-                ? `Will be synchronized with DMS and posted to ${activeChat?.name || 'this conversation'}`
-                : 'Directly creates and synchronizes a task record in DMS Tasking module'}
+                ? `Will be synchronized and posted to ${activeChat?.name || 'this conversation'}`
+                : 'Directly creates and synchronizes a task record'}
             </p>
           </div>
           <button
@@ -197,7 +197,7 @@ export const TaskFormModal: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                DMS Department
+                Department
               </label>
               <select
                 value={department}
@@ -264,7 +264,7 @@ export const TaskFormModal: React.FC = () => {
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center justify-between">
               <span className="flex items-center gap-1">
                 <Users className="w-3.5 h-3.5 text-slate-400" />
-                <span>Assign DMS Team Members</span>
+                <span>Assign Team Members</span>
               </span>
               <span className="text-[10px] text-slate-400">
                 {assigneeIds.length} selected
@@ -353,7 +353,7 @@ export const TaskFormModal: React.FC = () => {
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
                   <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                  <span>DMS Approval Workflow Required</span>
+                  <span>Approval Workflow Required</span>
                 </span>
                 <input
                   type="checkbox"
@@ -363,7 +363,7 @@ export const TaskFormModal: React.FC = () => {
                 />
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                When enabled, task completion transitions to "Pending Approval" in DMS and requires manager sign-off.
+                When enabled, task completion transitions to "Pending Approval" and requires manager sign-off.
               </p>
             </div>
           </div>
@@ -383,11 +383,11 @@ export const TaskFormModal: React.FC = () => {
               className="px-5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
               {isSubmitting ? (
-                <span>Creating in DMS...</span>
+                <span>Creating Task...</span>
               ) : (
                 <>
                   <Plus className="w-4 h-4" />
-                  <span>Create Task in DMS</span>
+                  <span>Create Task</span>
                 </>
               )}
             </button>

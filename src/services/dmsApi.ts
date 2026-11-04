@@ -1164,7 +1164,7 @@ class DmsApiService {
       method: 'POST',
       body: JSON.stringify({
         approve,
-        note: note || (approve ? 'Approved in DMS Chat' : 'Rejected in DMS Chat'),
+        note: note || (approve ? 'Approved in Chat' : 'Rejected in Chat'),
       }),
     });
     const updated = await this.fetchTaskById(taskId);
@@ -1229,7 +1229,7 @@ class DmsApiService {
     } else if (targetDmsStatus === 'completed' && currentTask?.status === 'under_review') {
       // Approving from review: try approve endpoint first
       try {
-        await this.approveTask(taskId, true, notes || 'Approved via DMS Chat');
+        await this.approveTask(taskId, true, notes || 'Approved via Chat');
       } catch {
         await this.request(`/tasks/${id}/status-transition`, {
           method: 'POST',
@@ -1354,7 +1354,10 @@ class DmsApiService {
         rawCiphertext: (m.text && typeof m.text === 'string' && m.text.startsWith('e2ee:v1:')) ? m.text : undefined,
         type: m.type || 'text',
         timestamp: m.timestamp || new Date().toISOString(),
-        status: m.status || 'delivered',
+        status: m.status || 'sent',
+        readAt: m.readAt || undefined,
+        readBy: m.readBy || undefined,
+        deliveredTo: m.deliveredTo || undefined,
         replyTo: m.replyTo || undefined,
         attachment: m.attachment || undefined,
         voiceDuration: m.voiceDuration ?? undefined,
@@ -1379,6 +1382,7 @@ class DmsApiService {
       method: 'POST',
       body: JSON.stringify({
         ...msg,
+        status: msg.status || 'sent',
         isEncrypted: msg.isEncrypted ?? false,
         keyVersion: msg.keyVersion ?? 1,
       }),
@@ -1392,7 +1396,10 @@ class DmsApiService {
       text: m.text || '',
       type: m.type || 'text',
       timestamp: m.timestamp,
-      status: m.status || 'delivered',
+      status: m.status || 'sent',
+      readAt: m.readAt || undefined,
+      readBy: m.readBy || undefined,
+      deliveredTo: m.deliveredTo || undefined,
       replyTo: m.replyTo,
       attachment: m.attachment,
       voiceDuration: m.voiceDuration,
@@ -1531,6 +1538,50 @@ class DmsApiService {
     });
     this.broadcastMutation('messages');
     return res.data;
+  }
+
+  /**
+   * Mark an entire conversation as read by the specified user
+   * Resets unread counter in task_db and marks messages as read
+   */
+  async markConversationRead(conversationId: string, userId?: string): Promise<{ success: boolean; readCount?: number }> {
+    try {
+      const activeUid = userId || this.currentUserId;
+      const res = await this.request<{ success: boolean; readCount?: number }>(
+        `/chat/conversations/${conversationId}/read`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ userId: activeUid }),
+        }
+      );
+      this.broadcastMutation('messages');
+      this.broadcastMutation('conversations');
+      return res;
+    } catch (err: any) {
+      console.warn('Failed to mark conversation read:', err?.message);
+      return { success: false };
+    }
+  }
+
+  /**
+   * Mark conversation messages as delivered to the specified user
+   */
+  async markConversationDelivered(conversationId: string, userId?: string): Promise<{ success: boolean; deliveredCount?: number }> {
+    try {
+      const activeUid = userId || this.currentUserId;
+      const res = await this.request<{ success: boolean; deliveredCount?: number }>(
+        `/chat/conversations/${conversationId}/delivered`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ userId: activeUid }),
+        }
+      );
+      this.broadcastMutation('messages');
+      return res;
+    } catch (err: any) {
+      console.warn('Failed to mark conversation delivered:', err?.message);
+      return { success: false };
+    }
   }
 
   // ==========================================

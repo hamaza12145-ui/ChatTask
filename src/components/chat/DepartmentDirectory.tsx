@@ -133,7 +133,7 @@ export const DepartmentDirectory: React.FC<DepartmentDirectoryProps> = ({
   return (
     <div className="w-full space-y-2 select-none">
       <div className="flex items-center justify-between px-1 text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-        <span>DMS Organizational Departments</span>
+        <span>Organizational Departments</span>
         <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">Live Sync</span>
       </div>
 
@@ -207,7 +207,7 @@ export const DepartmentDirectory: React.FC<DepartmentDirectoryProps> = ({
               <div className="border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/40 dark:bg-slate-950/30 p-1.5 space-y-1">
                 {deptUsers.length === 0 ? (
                   <div className="p-3 text-center text-xs text-slate-400">
-                    No users assigned to {meta.label} in DMS
+                    No users assigned to {meta.label}
                   </div>
                 ) : (
                   deptUsers.map((user) => {
@@ -302,7 +302,7 @@ export const DepartmentDirectory: React.FC<DepartmentDirectoryProps> = ({
 
                             <div className="bg-slate-800/90 dark:bg-slate-900/90 rounded-lg p-2 border border-slate-700/60 mb-2">
                               <span className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider block">
-                                DMS Role / Designation
+                                 Role / Designation
                               </span>
                               <span className="text-xs font-bold text-amber-300 dark:text-amber-200 block mt-0.5 leading-snug">
                                 {user.designation}
@@ -311,7 +311,7 @@ export const DepartmentDirectory: React.FC<DepartmentDirectoryProps> = ({
                                 Department: <span className="font-semibold text-white">{meta.label}</span>
                               </span>
                               <span className="text-[10px] text-slate-400 mt-0.5 block">
-                                DMS User ID: <span className="font-mono text-emerald-400">#{user.id}</span>
+                                 User ID: <span className="font-mono text-emerald-400">#{user.id}</span>
                               </span>
                               {user.managerName && (
                                 <span className="text-[10px] text-slate-300 mt-0.5 block">

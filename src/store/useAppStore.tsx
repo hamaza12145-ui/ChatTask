@@ -252,7 +252,25 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         localStorage.removeItem('dmstask_persisted_active_chat_id');
       }
     }
-  }, []);
+    if (chatId && currentUserId) {
+      // Clear unread count for current user in local state immediately
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === chatId
+            ? {
+                ...c,
+                unreadCounts: {
+                  ...(c.unreadCounts || {}),
+                  [currentUserId]: 0,
+                },
+              }
+            : c
+        )
+      );
+      // Synchronize read receipt with backend
+      dmsApi.markConversationRead(chatId, currentUserId).catch(() => {});
+    }
+  }, [currentUserId]);
 
   const activeChat = chats.find((c) => c.id === activeChatId) || (chats.length > 0 ? chats[0] : null);
 
@@ -463,7 +481,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         setIsAuthenticated(false);
       }
       if (!err?.message?.includes('permissions') && !err?.message?.includes('Forbidden')) {
-        addToast(`DMS API Notice: ${err?.message || 'Connecting to DMS backend...'}`, 'warning');
+        addToast(`System Notice: ${err?.message || 'Connecting to backend...'}`, 'warning');
       }
     } finally {
       setIsLoadingDms(false);
@@ -511,6 +529,19 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
       // 4. Dynamic Messages update (Real-time live messaging without reload)
       if (delta.changed.messages && delta.messages) {
+        // If the user is currently viewing activeChatId, mark incoming messages as read
+        if (activeChatId && currentUserId) {
+          const hasUnreadIncoming = delta.messages.some(
+            (m) =>
+              m.chatId === activeChatId &&
+              String(m.senderId) !== String(currentUserId) &&
+              (!m.readBy || !m.readBy[currentUserId])
+          );
+          if (hasUnreadIncoming) {
+            dmsApi.markConversationRead(activeChatId, currentUserId).catch(() => {});
+          }
+        }
+
         e2eeCrypto.decryptMessages(delta.messages).then((decryptedDelta) => {
           setMessages((prev) => {
             // Reconcile server messages with any optimistic local messages
@@ -538,6 +569,26 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       unsubscribe();
     };
   }, [refreshDmsData, currentUserId, activeChatId]);
+
+  // Dynamic Read Synchronizer: Automatically mark conversation as read when opened or switched
+  useEffect(() => {
+    if (activeChatId && currentUserId) {
+      dmsApi.markConversationRead(activeChatId, currentUserId).catch(() => {});
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === activeChatId
+            ? {
+                ...c,
+                unreadCounts: {
+                  ...(c.unreadCounts || {}),
+                  [currentUserId]: 0,
+                },
+              }
+            : c
+        )
+      );
+    }
+  }, [activeChatId, currentUserId]);
 
   // Dynamic Auto-Decryption: Ensure active conversation messages are decrypted when switching chats or personas
   useEffect(() => {
@@ -724,7 +775,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         text,
         type,
         timestamp: now,
-        status: 'delivered',
+        status: 'sent',
         replyTo: options?.replyTo,
         attachment: options?.attachment,
         voiceDuration: options?.voiceDuration,
@@ -734,7 +785,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         isDecrypted: true,
       };
 
-      // Optimistic state update (Sender sees cleartext immediately)
+      // Optimistic state update (Sender sees cleartext immediately with 1 grey tick)
       setMessages((prev) => [...prev, newMsg]);
 
       // Update chat's lastMessage
@@ -748,6 +799,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
                   timestamp: now,
                   senderId: currentUser.id,
                   type,
+                  status: 'sent',
                 },
               }
             : c
@@ -804,13 +856,30 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
             text: encResult.ciphertext,
             type,
             timestamp: now,
-            status: 'delivered',
+            status: 'sent',
             isEncrypted: encResult.isEncrypted,
             keyVersion: encResult.keyVersion,
             mentions: mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
             taskId: options?.taskId ? String(options.taskId) : undefined,
           };
-          return dmsApi.sendChatMessage(wireMessage);
+          return dmsApi.sendChatMessage(wireMessage).then((savedMsg) => {
+            if (savedMsg) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === newMsgId
+                    ? {
+                        ...m,
+                        id: savedMsg.id || m.id,
+                        status: savedMsg.status || 'sent',
+                        readAt: savedMsg.readAt,
+                        readBy: savedMsg.readBy,
+                        deliveredTo: savedMsg.deliveredTo,
+                      }
+                    : m
+                )
+              );
+            }
+          });
         })
         .catch((err) => {
           console.error('Failed to encrypt or persist message to ERP-Task database:', err?.message);
@@ -938,7 +1007,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
             id: 'msg_sys_' + (Date.now() + 1),
             chatId: data.sourceChatId,
             senderId: 'system',
-            text: `DMS Task ${newTask.code} created by ${currentUser.name}`,
+            text: `Task ${newTask.code} created by ${currentUser.name}`,
             type: 'system',
             timestamp: now,
             status: 'read',
@@ -973,7 +1042,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
               recipientId: assigneeId,
               senderId: currentUser.id,
               type: 'new_task',
-              title: `DMS Assigned: ${newTask.code}`,
+              title: `Task Assigned: ${newTask.code}`,
               body: `${currentUser.name} assigned you to "${newTask.title}"`,
               timestamp: now,
               read: false,
@@ -985,10 +1054,10 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           }
         });
 
-        addToast(`DMS Task ${newTask.code} created successfully`, 'success');
+        addToast(`Task ${newTask.code} created successfully`, 'success');
         return newTask;
       } catch (err: any) {
-        addToast(`Failed to create task in DMS: ${err?.message}`, 'warning');
+        addToast(`Failed to create task: ${err?.message}`, 'warning');
         throw err;
       }
     },
@@ -1026,7 +1095,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         const activityLogItem = {
           id: 'act_' + Date.now(),
           userId: currentUser.id,
-          action: `Changed status to ${statusLabels[targetStatus]} in DMS`,
+          action: `Changed status to ${statusLabels[targetStatus]}`,
           timestamp: now,
         };
 
@@ -1057,9 +1126,9 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           dmsApi.sendChatMessage(sysMsg).catch(() => {});
         }
 
-        addToast(`DMS Task status updated to ${statusLabels[targetStatus]}`, 'success');
+        addToast(`Task status updated to ${statusLabels[targetStatus]}`, 'success');
       } catch (err: any) {
-        addToast(`DMS update note: ${err?.message}`, 'warning');
+        addToast(`Update note: ${err?.message}`, 'warning');
         // Still update local UI state with warning
         setTasks((prev) =>
           prev.map((t) => (t.id === taskId ? { ...t, status: targetStatus, updatedAt: now } : t))
@@ -1124,7 +1193,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         dmsApi.sendChatMessage(sysMsg).catch(() => {});
       }
 
-      addToast('Proof submitted and recorded in DMS', 'success');
+      addToast('Proof submitted and recorded successfully', 'success');
       setIsProofModalOpen(false);
     },
     [tasks, currentUser, addToast]
@@ -1140,14 +1209,14 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       const activityLogItem = {
         id: 'act_' + Date.now(),
         userId: currentUser.id,
-        action: `Approved task completion in DMS`,
+        action: `Approved task completion`,
         timestamp: now,
       };
 
       try {
         await dmsApi.updateTaskStatus(taskId, 'completed');
       } catch (err: any) {
-        console.warn('DMS approve sync:', err?.message);
+        console.warn('Approve sync:', err?.message);
       }
 
       setTasks((prev) =>
@@ -1182,7 +1251,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         dmsApi.sendChatMessage(sysMsg).catch(() => {});
       }
 
-      addToast(`DMS Task ${task.code} approved!`, 'success');
+      addToast(`Task ${task.code} approved!`, 'success');
     },
     [tasks, currentUser, addToast]
   );
@@ -1212,7 +1281,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         await dmsApi.addTaskComment(taskId, `[Approval Rejected]: ${reason}`);
         await dmsApi.updateTaskStatus(taskId, 'in_progress');
       } catch (err: any) {
-        console.warn('DMS reject sync:', err?.message);
+        console.warn('Reject sync:', err?.message);
       }
 
       setTasks((prev) =>
@@ -1249,7 +1318,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         dmsApi.sendChatMessage(sysMsg).catch(() => {});
       }
 
-      addToast(`Task moved to In Progress in DMS`, 'warning');
+      addToast(`Task moved to In Progress`, 'warning');
     },
     [tasks, currentUser, addToast]
   );
@@ -1283,7 +1352,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   );
 
   // ========================================================
-  // DMS TASK INTEGRATION: ADD COMMENT TO DMS TASK
+  // TASK INTEGRATION: ADD COMMENT TO TASK
   // ========================================================
   const addCommentToTask = useCallback(
     async (taskId: string, text: string) => {
@@ -1303,7 +1372,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
               : t
           )
         );
-        addToast('Comment synced with DMS task', 'info');
+        addToast('Comment added successfully', 'info');
       } catch (err: any) {
         // Fallback local update if network issue
         const newComment = {
@@ -1404,7 +1473,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         department: task.department,
         linkedTaskId: taskId,
         unreadCounts: {},
-        description: `Dedicated discussion channel for DMS Task ${task.code} (${task.title})`,
+        description: `Dedicated discussion channel for Task ${task.code} (${task.title})`,
       };
 
       setChats((prev) => [newTaskChat, ...prev]);

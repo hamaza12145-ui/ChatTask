@@ -89,7 +89,7 @@ export const NewChatModal: React.FC = () => {
         <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
           <div>
             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-              New DMS Conversation
+              New Conversation
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Select one colleague for direct chat, or multiple for department group discussion.
@@ -109,7 +109,7 @@ export const NewChatModal: React.FC = () => {
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Search DMS users by name, designation, or email..."
+              placeholder="Search users by name, designation, or email..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-emerald-500"

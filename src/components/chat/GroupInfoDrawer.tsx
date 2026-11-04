@@ -82,7 +82,7 @@ export const GroupInfoDrawer: React.FC = () => {
               <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-200/70 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200 font-semibold">Active</span>
             </p>
             <p className="text-[11px] text-emerald-700 dark:text-emerald-300/80 mt-0.5 leading-snug">
-              Messages and deliverables in this chat are client-side encrypted with AES-256-GCM and individual RSA-2048 recipient wrapping. Keys are never transmitted in cleartext.
+              Messages and deliverables in this chat are client-side encrypted.
             </p>
           </div>
         </div>
