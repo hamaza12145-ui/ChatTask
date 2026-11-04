@@ -30,6 +30,8 @@ interface AppStoreContextType {
   getUserById: (userId: string) => User | undefined;
   isLoadingDms: boolean;
   isDmsConnected: boolean;
+  isLiveSyncing: boolean;
+  lastSyncTimestamp: number | null;
   refreshDmsData: () => Promise<void>;
 
   // Chats
@@ -196,6 +198,8 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   });
   const [isLoadingDms, setIsLoadingDms] = useState<boolean>(true);
   const [isDmsConnected, setIsDmsConnected] = useState<boolean>(false);
+  const [isLiveSyncing, setIsLiveSyncing] = useState<boolean>(true);
+  const [lastSyncTimestamp, setLastSyncTimestamp] = useState<number | null>(null);
 
   // Authentication & session state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -239,6 +243,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const setActiveChatId = useCallback((chatId: string | null) => {
     setActiveChatIdState(chatId);
+    dmsApi.setActiveChatId(chatId);
     if (typeof window !== 'undefined') {
       if (chatId) {
         localStorage.setItem('dmstask_persisted_active_chat_id', chatId);
@@ -456,10 +461,63 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   }, [currentUserId, addToast]);
 
-  // Initial load on mount
+  // Dynamic Real-Time Live Sync with ERP-Task & DMS without page refresh/reload
   useEffect(() => {
+    // Initial fetch on mount
     refreshDmsData();
-  }, [refreshDmsData]);
+
+    // Inform dmsApi of active user and chat
+    dmsApi.setCurrentUserId(currentUserId);
+    if (activeChatId) {
+      dmsApi.setActiveChatId(activeChatId);
+    }
+
+    // Subscribe to real-time delta updates from dmsApi
+    const unsubscribe = dmsApi.startLiveSync((delta) => {
+      setIsDmsConnected(true);
+      setIsLiveSyncing(true);
+      setLastSyncTimestamp(delta.timestamp);
+
+      // 1. Dynamic Users & Directory update
+      if (delta.changed.users && delta.users && delta.users.length > 0) {
+        setUsers(delta.users);
+      }
+
+      // 2. Dynamic Tasks & Kanban Board update (status, comments, checklists)
+      if (delta.changed.tasks && delta.tasks) {
+        setTasks(delta.tasks);
+      }
+
+      // 3. Dynamic Conversations & Channels update
+      if (delta.changed.conversations && delta.conversations) {
+        setChats(delta.conversations);
+      }
+
+      // 4. Dynamic Messages update (Real-time live messaging without reload)
+      if (delta.changed.messages && delta.messages) {
+        setMessages((prev) => {
+          // Reconcile server messages with any optimistic local messages
+          const serverMsgIds = new Set(delta.messages!.map((m) => m.id));
+          const pendingLocalMsgs = prev.filter(
+            (m) => m.id.startsWith('msg_') && !serverMsgIds.has(m.id)
+          );
+          if (pendingLocalMsgs.length === 0) {
+            return delta.messages!;
+          }
+          return [...delta.messages!, ...pendingLocalMsgs];
+        });
+      }
+
+      // 5. Dynamic Notifications update (Bell counter & alerts)
+      if (delta.changed.notifications && delta.notifications) {
+        setNotifications(delta.notifications);
+      }
+    }, 2500);
+
+    return () => {
+      unsubscribe();
+    };
+  }, [refreshDmsData, currentUserId, activeChatId]);
 
   // Explicit Login action
   const login = useCallback(
@@ -506,6 +564,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   const setCurrentUserId = useCallback(
     async (userId: string) => {
       setLocalCurrentUserId(userId);
+      dmsApi.setCurrentUserId(userId);
       const targetUser = users.find((u) => u.id === userId);
       if (targetUser && targetUser.email) {
         try {
@@ -1278,6 +1337,8 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         getUserById,
         isLoadingDms,
         isDmsConnected,
+        isLiveSyncing,
+        lastSyncTimestamp,
         refreshDmsData,
         chats,
         activeChatId,

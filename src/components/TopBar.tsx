@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { UserSwitcher } from './UserSwitcher';
+import { UserProfileMenu } from './UserProfileMenu';
 import {
   MessageSquare,
   CheckSquare,
@@ -42,9 +42,20 @@ export const TopBar: React.FC = () => {
             <span className="text-sm sm:text-base font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap leading-tight">
               DMS Communication
             </span>
-            <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold tracking-wide uppercase leading-none">
-              Tasking Module Integration
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold tracking-wide uppercase leading-none">
+                Tasking Module Integration
+              </span>
+              {isDmsConnected && (
+                <span
+                  className="hidden sm:inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/60 shadow-2xs select-none"
+                  title="Dynamically synchronized in real-time with ERP-Task and DMS"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Live Sync
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -151,8 +162,8 @@ export const TopBar: React.FC = () => {
           {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
         </button>
 
-        {/* User Persona Switcher */}
-        <UserSwitcher />
+        {/* Authenticated User Profile Menu */}
+        <UserProfileMenu />
       </div>
     </header>
   );

@@ -203,14 +203,153 @@ export const formatUserDesignation = (role: string, department: string): string 
   }
 };
 
+// ==========================================
+// REAL-TIME DYNAMIC SYNCHRONIZATION TYPES
+// ==========================================
+
+export interface DmsSyncChangedFlags {
+  users: boolean;
+  tasks: boolean;
+  conversations: boolean;
+  messages: boolean;
+  notifications: boolean;
+}
+
+export interface DmsSyncPayload {
+  users?: User[];
+  tasks?: Task[];
+  conversations?: Chat[];
+  messages?: ChatMessage[];
+  notifications?: AppNotification[];
+  changed: DmsSyncChangedFlags;
+  timestamp: number;
+}
+
+export type DmsSyncListener = (payload: DmsSyncPayload) => void;
+
+export interface LiveSyncOptions {
+  intervalMs?: number;
+  onDelta?: DmsSyncListener;
+}
+
+/**
+ * Fast change-detection fingerprinting utilities
+ */
+function computeUsersFingerprint(users: User[]): string {
+  return `${users.length}_` + users.map((u) => `${u.id}:${u.name}:${u.department}:${u.role}:${u.status}`).join('|');
+}
+
+function computeTasksFingerprint(tasks: Task[]): string {
+  return (
+    `${tasks.length}_` +
+    tasks
+      .map(
+        (t) =>
+          `${t.id}:${t.status}:${t.priority}:${t.updatedAt || ''}:${t.comments?.length || 0}:${t.activityLog?.length || 0}:${t.progress || 0}`
+      )
+      .join('|')
+  );
+}
+
+function computeConversationsFingerprint(convs: Chat[]): string {
+  return (
+    `${convs.length}_` +
+    convs
+      .map(
+        (c) =>
+          `${c.id}:${c.lastMessage?.timestamp || ''}:${c.lastMessage?.text || ''}:${Object.entries(c.unreadCounts || {})
+            .map(([k, v]) => `${k}=${v}`)
+            .join(',')}`
+      )
+      .join('|')
+  );
+}
+
+function computeMessagesFingerprint(msgs: ChatMessage[]): string {
+  if (msgs.length === 0) return '0_empty';
+  const latest = msgs[msgs.length - 1];
+  const first = msgs[0];
+  const reactionsCount = msgs.reduce((acc, m) => acc + (m.reactions?.length || 0), 0);
+  return `${msgs.length}_${first?.id || ''}_${latest?.id || ''}_${latest?.timestamp || ''}_${reactionsCount}`;
+}
+
+function computeNotificationsFingerprint(notifs: AppNotification[]): string {
+  if (notifs.length === 0) return '0_empty';
+  const unreadCount = notifs.filter((n) => !n.read).length;
+  return `${notifs.length}_${unreadCount}_${notifs[0]?.id || ''}_${notifs[0]?.read}`;
+}
+
 class DmsApiService {
   private token: string | null = null;
-  private currentEmail: string | null = null;
+  public currentEmail: string | null = null;
+  private currentUserId: string = '5';
+  private activeChatId: string | null = null;
+
+  // Real-time Dynamic Live Sync infrastructure
+  private syncListeners = new Set<DmsSyncListener>();
+  private syncTimer: any = null;
+  private isLiveSyncActive = false;
+  private isSyncing = false;
+  private lastSyncTimestamp: number = 0;
+  private broadcastChannel: BroadcastChannel | null = null;
+  private tickCount: number = 0;
+
+  // Change detection fingerprints
+  private lastUsersHash = '';
+  private lastTasksHash = '';
+  private lastConversationsHash = '';
+  private lastMessagesHash = '';
+  private lastNotificationsHash = '';
+
+  // Cached data snapshots
+  private cachedUsers: User[] = [];
+  private cachedTasks: Task[] = [];
+  private cachedConversations: Chat[] = [];
+  private cachedMessages: ChatMessage[] = [];
+  private cachedNotifications: AppNotification[] = [];
+
+  public getCurrentEmail(): string | null {
+    return this.currentEmail;
+  }
 
   constructor() {
     if (typeof window !== 'undefined') {
       this.token = localStorage.getItem('dms_token');
       this.currentEmail = localStorage.getItem('dms_user_email');
+      this.currentUserId = localStorage.getItem('dmstask_persisted_user_id') || '5';
+
+      // Setup Cross-Tab Dynamic Synchronization via BroadcastChannel
+      try {
+        if ('BroadcastChannel' in window) {
+          this.broadcastChannel = new BroadcastChannel('dms_realtime_sync_channel');
+          this.broadcastChannel.onmessage = (event) => {
+            if (event.data?.type === 'DMS_SYNC_TRIGGER') {
+              this.triggerSync(event.data.scope).catch(() => {});
+            }
+          };
+        }
+      } catch {
+        // BroadcastChannel optional fallback
+      }
+
+      // Re-sync immediately on window focus, visibility, and network reconnect
+      window.addEventListener('focus', () => {
+        if (this.isLiveSyncActive) {
+          this.triggerSync().catch(() => {});
+        }
+      });
+
+      window.addEventListener('online', () => {
+        if (this.isLiveSyncActive) {
+          this.triggerSync().catch(() => {});
+        }
+      });
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && this.isLiveSyncActive) {
+          this.triggerSync().catch(() => {});
+        }
+      });
     }
   }
 
@@ -237,6 +376,259 @@ class DmsApiService {
         this.currentEmail = null;
         localStorage.removeItem('dms_user_email');
       }
+    }
+    // Invalidate cached hashes to ensure immediate fresh sync
+    this.lastUsersHash = '';
+    this.lastTasksHash = '';
+    this.lastConversationsHash = '';
+    this.lastMessagesHash = '';
+    this.lastNotificationsHash = '';
+    if (token) {
+      this.triggerSync('all').catch(() => {});
+    }
+  }
+
+  /**
+   * Broadcast local mutation across all browser tabs and trigger immediate sync
+   */
+  public broadcastMutation(scope: 'all' | 'messages' | 'tasks' | 'users' | 'conversations' | 'notifications' = 'all') {
+    try {
+      this.broadcastChannel?.postMessage({ type: 'DMS_SYNC_TRIGGER', scope });
+    } catch {}
+    // Trigger local immediate sync without waiting for next polling tick
+    this.triggerSync(scope).catch(() => {});
+  }
+
+  /**
+   * Start dynamic real-time live synchronization.
+   * Returns an unsubscribe function to stop syncing.
+   */
+  public startLiveSync(listener?: DmsSyncListener, intervalMs: number = 2500): () => void {
+    if (listener) {
+      this.syncListeners.add(listener);
+    }
+
+    if (this.isLiveSyncActive) {
+      // Already running, return unsubscribe for this listener
+      return () => {
+        if (listener) this.syncListeners.delete(listener);
+      };
+    }
+
+    this.isLiveSyncActive = true;
+    this.tickCount = 0;
+
+    // Trigger initial sync immediately
+    this.triggerSync('all').catch(() => {});
+
+    // Schedule periodic adaptive polling
+    this.syncTimer = setInterval(() => {
+      if (!this.isLiveSyncActive) return;
+
+      // Throttle when page is hidden / backgrounded
+      if (typeof document !== 'undefined' && document.hidden) {
+        this.tickCount++;
+        // Run only every 6 ticks (15s) when tab is hidden
+        if (this.tickCount % 6 !== 0) return;
+      }
+
+      this.tickCount++;
+      const isEvery2Ticks = this.tickCount % 2 === 0; // ~5s
+      const isEvery4Ticks = this.tickCount % 4 === 0; // ~10s
+
+      if (isEvery4Ticks) {
+        // Users & Directory check
+        this.triggerSync('all').catch(() => {});
+      } else if (isEvery2Ticks) {
+        // Tasks & Notifications check + messages
+        this.triggerSync('tasks').then(() => this.triggerSync('messages')).catch(() => {});
+      } else {
+        // High priority: real-time Messages & Conversations
+        this.triggerSync('messages').catch(() => {});
+      }
+    }, intervalMs);
+
+    return () => {
+      if (listener) {
+        this.syncListeners.delete(listener);
+      }
+      if (this.syncListeners.size === 0) {
+        this.stopLiveSync();
+      }
+    };
+  }
+
+  public stopLiveSync(): void {
+    this.isLiveSyncActive = false;
+    if (this.syncTimer) {
+      clearInterval(this.syncTimer);
+      this.syncTimer = null;
+    }
+  }
+
+  public subscribe(listener: DmsSyncListener): () => void {
+    this.syncListeners.add(listener);
+    return () => {
+      this.syncListeners.delete(listener);
+    };
+  }
+
+  public setActiveChatId(chatId: string | null): void {
+    this.activeChatId = chatId;
+    if (chatId) {
+      // Immediately trigger message sync for active chat
+      this.triggerSync('messages').catch(() => {});
+    }
+  }
+
+  public setCurrentUserId(userId: string): void {
+    this.currentUserId = userId;
+  }
+
+  public getSyncStatus(): { isLiveSyncing: boolean; lastSyncTime: number; isConnected: boolean } {
+    return {
+      isLiveSyncing: this.isLiveSyncActive,
+      lastSyncTime: this.lastSyncTimestamp,
+      isConnected: Boolean(this.token),
+    };
+  }
+
+  public getCachedData() {
+    return {
+      users: this.cachedUsers,
+      tasks: this.cachedTasks,
+      conversations: this.cachedConversations,
+      messages: this.cachedMessages,
+      notifications: this.cachedNotifications,
+      lastSyncTimestamp: this.lastSyncTimestamp,
+    };
+  }
+
+  /**
+   * Execute an immediate sync cycle for specified scope or all entities
+   */
+  public async triggerSync(
+    scope: 'all' | 'messages' | 'tasks' | 'users' | 'conversations' | 'notifications' = 'all'
+  ): Promise<DmsSyncPayload | null> {
+    if (this.isSyncing) return null;
+    if (!this.token) {
+      const stored = typeof window !== 'undefined' ? localStorage.getItem('dms_token') : null;
+      if (!stored) return null;
+      this.token = stored;
+    }
+
+    this.isSyncing = true;
+    try {
+      const shouldFetchAll = scope === 'all';
+      const shouldFetchMessages = shouldFetchAll || scope === 'messages';
+      const shouldFetchTasks = shouldFetchAll || scope === 'tasks';
+      const shouldFetchConvs = shouldFetchAll || scope === 'conversations' || scope === 'messages';
+      const shouldFetchUsers = shouldFetchAll || scope === 'users';
+      const shouldFetchNotifs = shouldFetchAll || scope === 'notifications';
+
+      const promises: [
+        Promise<User[] | null>,
+        Promise<Task[] | null>,
+        Promise<Chat[] | null>,
+        Promise<ChatMessage[] | null>,
+        Promise<AppNotification[] | null>,
+      ] = [
+        shouldFetchUsers ? this.fetchUsers().catch(() => null) : Promise.resolve(null),
+        shouldFetchTasks ? this.fetchTasks().catch(() => null) : Promise.resolve(null),
+        shouldFetchConvs ? this.fetchConversations().catch(() => null) : Promise.resolve(null),
+        shouldFetchMessages ? this.fetchMessages().catch(() => null) : Promise.resolve(null),
+        shouldFetchNotifs ? this.fetchNotifications(this.currentUserId).catch(() => null) : Promise.resolve(null),
+      ];
+
+      const [newUsers, newTasks, newConvs, newMsgs, newNotifs] = await Promise.all(promises);
+
+      let usersChanged = false;
+      let tasksChanged = false;
+      let convsChanged = false;
+      let msgsChanged = false;
+      let notifsChanged = false;
+
+      if (newUsers && newUsers.length > 0) {
+        const hash = computeUsersFingerprint(newUsers);
+        if (hash !== this.lastUsersHash) {
+          this.lastUsersHash = hash;
+          this.cachedUsers = newUsers;
+          usersChanged = true;
+        }
+      }
+
+      if (newTasks) {
+        const hash = computeTasksFingerprint(newTasks);
+        if (hash !== this.lastTasksHash) {
+          this.lastTasksHash = hash;
+          this.cachedTasks = newTasks;
+          tasksChanged = true;
+        }
+      }
+
+      if (newConvs) {
+        const hash = computeConversationsFingerprint(newConvs);
+        if (hash !== this.lastConversationsHash) {
+          this.lastConversationsHash = hash;
+          this.cachedConversations = newConvs;
+          convsChanged = true;
+        }
+      }
+
+      if (newMsgs) {
+        const hash = computeMessagesFingerprint(newMsgs);
+        if (hash !== this.lastMessagesHash) {
+          this.lastMessagesHash = hash;
+          this.cachedMessages = newMsgs;
+          msgsChanged = true;
+        }
+      }
+
+      if (newNotifs) {
+        const hash = computeNotificationsFingerprint(newNotifs);
+        if (hash !== this.lastNotificationsHash) {
+          this.lastNotificationsHash = hash;
+          this.cachedNotifications = newNotifs;
+          notifsChanged = true;
+        }
+      }
+
+      this.lastSyncTimestamp = Date.now();
+
+      if (usersChanged || tasksChanged || convsChanged || msgsChanged || notifsChanged) {
+        const payload: DmsSyncPayload = {
+          users: usersChanged ? this.cachedUsers : undefined,
+          tasks: tasksChanged ? this.cachedTasks : undefined,
+          conversations: convsChanged ? this.cachedConversations : undefined,
+          messages: msgsChanged ? this.cachedMessages : undefined,
+          notifications: notifsChanged ? this.cachedNotifications : undefined,
+          changed: {
+            users: usersChanged,
+            tasks: tasksChanged,
+            conversations: convsChanged,
+            messages: msgsChanged,
+            notifications: notifsChanged,
+          },
+          timestamp: this.lastSyncTimestamp,
+        };
+
+        this.syncListeners.forEach((listener) => {
+          try {
+            listener(payload);
+          } catch (e) {
+            console.error('Error in DMS sync listener:', e);
+          }
+        });
+
+        return payload;
+      }
+
+      return null;
+    } catch (err: any) {
+      console.warn('Background sync error:', err?.message);
+      return null;
+    } finally {
+      this.isSyncing = false;
     }
   }
 
@@ -737,6 +1129,7 @@ class DmsApiService {
     if (!task) {
       throw new Error('Failed to retrieve created task from DMS');
     }
+    this.broadcastMutation('tasks');
     return task;
   }
 
@@ -756,6 +1149,7 @@ class DmsApiService {
     if (!updated) {
       throw new Error(`Failed to retrieve task #${taskId} after approval`);
     }
+    this.broadcastMutation('tasks');
     return updated;
   }
 
@@ -855,6 +1249,7 @@ class DmsApiService {
     }
 
     const updated = await this.fetchTaskById(taskId);
+    this.broadcastMutation('tasks');
     return updated || currentTask!;
   }
 
@@ -869,6 +1264,7 @@ class DmsApiService {
     });
 
     const c = res.data;
+    this.broadcastMutation('tasks');
     return {
       id: String(c.id),
       userId: String(c.author?.id || '5'),
@@ -916,6 +1312,7 @@ class DmsApiService {
       method: 'POST',
       body: JSON.stringify(chat),
     });
+    this.broadcastMutation('conversations');
     return res.data;
   }
 
@@ -957,6 +1354,7 @@ class DmsApiService {
       method: 'POST',
       body: JSON.stringify(msg),
     });
+    this.broadcastMutation('messages');
     const m = res.data;
     return {
       id: m.id,
@@ -984,6 +1382,7 @@ class DmsApiService {
       method: 'POST',
       body: JSON.stringify({ emoji, userId }),
     });
+    this.broadcastMutation('messages');
     return res.data;
   }
 
@@ -994,6 +1393,7 @@ class DmsApiService {
     const res = await this.request<{ success?: boolean; data: any }>(`/chat/messages/${messageId}/read`, {
       method: 'PATCH',
     });
+    this.broadcastMutation('messages');
     return res.data;
   }
 
@@ -1036,6 +1436,7 @@ class DmsApiService {
       method: 'POST',
       body: JSON.stringify(notif),
     });
+    this.broadcastMutation('notifications');
     const n = res.data;
     return {
       id: String(n.id),
@@ -1060,6 +1461,7 @@ class DmsApiService {
       await this.request(`/chat/notifications/${notificationId}/read`, {
         method: 'PATCH',
       });
+      this.broadcastMutation('notifications');
     } catch (err: any) {
       console.warn('Failed to mark notification read in task_db:', err?.message);
     }
@@ -1074,6 +1476,7 @@ class DmsApiService {
         method: 'POST',
         body: JSON.stringify({ userId: userId || '5' }),
       });
+      this.broadcastMutation('notifications');
     } catch (err: any) {
       console.warn('Failed to mark all notifications read in task_db:', err?.message);
     }
