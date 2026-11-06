@@ -536,8 +536,8 @@ class DmsApiService {
       ] = [
         shouldFetchUsers ? this.fetchUsers().catch(() => null) : Promise.resolve(null),
         shouldFetchTasks ? this.fetchTasks().catch(() => null) : Promise.resolve(null),
-        shouldFetchConvs ? this.fetchConversations().catch(() => null) : Promise.resolve(null),
-        shouldFetchMessages ? this.fetchMessages().catch(() => null) : Promise.resolve(null),
+        shouldFetchConvs ? this.fetchConversations(this.currentUserId).catch(() => null) : Promise.resolve(null),
+        shouldFetchMessages ? this.fetchMessages(undefined, 2000, this.currentUserId).catch(() => null) : Promise.resolve(null),
         shouldFetchNotifs ? this.fetchNotifications(this.currentUserId).catch(() => null) : Promise.resolve(null),
       ];
 
@@ -1302,17 +1302,19 @@ class DmsApiService {
   /**
    * Fetch all persistent chat conversations from ERP-Task backend
    */
-  async fetchConversations(): Promise<Chat[]> {
+  async fetchConversations(userId?: string): Promise<Chat[]> {
     try {
-      const res = await this.request<{ success?: boolean; data: any[] }>('/chat/conversations');
+      const activeUid = userId || this.currentUserId;
+      const endpoint = activeUid ? `/chat/conversations?userId=${activeUid}` : '/chat/conversations';
+      const res = await this.request<{ success?: boolean; data: any[] }>(endpoint);
       const convs = res.data || [];
       return convs.map((c: any): Chat => ({
         id: c.id,
         name: c.name,
         type: c.type || 'group',
         avatarBg: c.avatarBg || 'bg-slate-700',
-        participantIds: c.participantIds || [],
-        adminIds: c.adminIds || [],
+        participantIds: (c.participantIds || []).map(String),
+        adminIds: (c.adminIds || []).map(String),
         department: c.department || undefined,
         linkedTaskId: c.linkedTaskId || undefined,
         isPinned: Boolean(c.isPinned),
@@ -1321,7 +1323,7 @@ class DmsApiService {
         unreadCounts: c.unreadCounts || {},
       }));
     } catch (err: any) {
-      console.warn('Failed to fetch conversations from DMS:', err?.message);
+      console.warn('Failed to fetch conversations:', err?.message);
       return [];
     }
   }
@@ -1341,9 +1343,13 @@ class DmsApiService {
   /**
    * Fetch persistent chat messages from ERP-Task backend
    */
-  async fetchMessages(chatId?: string, limit: number = 2000): Promise<ChatMessage[]> {
+  async fetchMessages(chatId?: string, limit: number = 2000, userId?: string): Promise<ChatMessage[]> {
     try {
-      const endpoint = chatId ? `/chat/messages/${chatId}?limit=${limit}` : `/chat/messages?limit=${limit}`;
+      const activeUid = userId || this.currentUserId;
+      let endpoint = chatId ? `/chat/messages/${chatId}?limit=${limit}` : `/chat/messages?limit=${limit}`;
+      if (!chatId && activeUid) {
+        endpoint += `&userId=${activeUid}`;
+      }
       const res = await this.request<{ success?: boolean; data: any[] }>(endpoint);
       const msgs = res.data || [];
       return msgs.map((m: any): ChatMessage => ({

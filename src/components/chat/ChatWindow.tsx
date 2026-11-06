@@ -405,7 +405,7 @@ export const ChatWindow: React.FC = () => {
           <div className="max-w-md mx-auto px-3.5 py-1.5 rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/40 text-[11px] text-amber-800 dark:text-amber-300 flex items-center gap-2 text-center shadow-2xs">
             <Lock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
             <span>
-              Messages and files are end-to-end encrypted. No one outside of this chat, not even MTJF administrators, can read them.
+              Messages and files are end-to-end encrypted.
             </span>
           </div>
         </div>

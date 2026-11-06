@@ -225,7 +225,8 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [chats, setChats] = useState<Chat[]>(() => {
     if (typeof window !== 'undefined') {
       const cached = localStorage.getItem('dmstask_persisted_chats');
-      if (cached) {
+      const cachedUid = localStorage.getItem('dmstask_persisted_user_id');
+      if (cached && cachedUid === currentUserId) {
         try {
           const parsed = JSON.parse(cached);
           if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -237,9 +238,9 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const [activeChatId, setActiveChatIdState] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('dmstask_persisted_active_chat_id') || 'chat_dept_program';
+      return localStorage.getItem('dmstask_persisted_active_chat_id') || null;
     }
-    return 'chat_dept_program';
+    return null;
   });
 
   const setActiveChatId = useCallback((chatId: string | null) => {
@@ -413,8 +414,8 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       const [fetchedUsers, fetchedTasks, fetchedConversations, fetchedMessages, fetchedNotifications] = await Promise.all([
         dmsApi.fetchUsers(),
         dmsApi.fetchTasks(),
-        dmsApi.fetchConversations(),
-        dmsApi.fetchMessages(),
+        dmsApi.fetchConversations(currentUserId),
+        dmsApi.fetchMessages(undefined, 2000, currentUserId),
         dmsApi.fetchNotifications(currentUserId),
       ]);
 
@@ -438,30 +439,34 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         setTasks(fetchedTasks);
       }
 
-      if (fetchedConversations.length > 0) {
-        // Synchronize departmental channels with actual DMS users
-        const syncedChats = fetchedConversations.map((c) => {
-          if (c.type === 'channel' && c.department && fetchedUsers.length > 0) {
-            const deptUserIds = fetchedUsers
-              .filter((u) => u.department?.toLowerCase() === c.department?.toLowerCase())
-              .map((u) => u.id);
-            const adminUser = fetchedUsers.find((u) => u.department === 'admin');
-            const allParticipants = [
-              ...new Set([...c.participantIds, ...deptUserIds, adminUser?.id].filter(Boolean) as string[]),
-            ];
-            return { ...c, participantIds: allParticipants };
+      if (fetchedConversations && fetchedConversations.length > 0) {
+        const uid = String(currentUserId);
+        const authorizedConvs = fetchedConversations.filter((c) => {
+          if (c.type === 'direct') {
+            return c.participantIds?.map(String).includes(uid);
           }
-          return c;
+          if (c.type === 'group') {
+            return c.participantIds?.map(String).includes(uid) || c.adminIds?.map(String).includes(uid);
+          }
+          if (c.type === 'channel' || c.type === 'announcement') {
+            if (!c.participantIds || c.participantIds.length === 0) return true;
+            return c.participantIds.map(String).includes(uid);
+          }
+          return c.participantIds?.map(String).includes(uid);
         });
-        setChats(syncedChats);
 
-        // Ensure activeChatId points to a valid conversation
+        setChats(authorizedConvs);
+
+        // Ensure activeChatId points to a valid authorized conversation
         setActiveChatIdState((prev) => {
-          if (prev && syncedChats.some((c) => c.id === prev)) {
+          if (prev && authorizedConvs.some((c) => c.id === prev)) {
             return prev;
           }
-          return syncedChats[0]?.id || 'chat_dept_program';
+          return authorizedConvs[0]?.id || null;
         });
+      } else {
+        setChats([]);
+        setActiveChatIdState(null);
       }
 
       if (fetchedMessages.length > 0) {
@@ -524,7 +529,21 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
       // 3. Dynamic Conversations & Channels update
       if (delta.changed.conversations && delta.conversations) {
-        setChats(delta.conversations);
+        const uid = String(currentUserId);
+        const authorizedDelta = delta.conversations.filter((c) => {
+          if (c.type === 'direct') {
+            return c.participantIds?.map(String).includes(uid);
+          }
+          if (c.type === 'group') {
+            return c.participantIds?.map(String).includes(uid) || c.adminIds?.map(String).includes(uid);
+          }
+          if (c.type === 'channel' || c.type === 'announcement') {
+            if (!c.participantIds || c.participantIds.length === 0) return true;
+            return c.participantIds.map(String).includes(uid);
+          }
+          return c.participantIds?.map(String).includes(uid);
+        });
+        setChats(authorizedDelta);
       }
 
       // 4. Dynamic Messages update (Real-time live messaging without reload)
@@ -689,6 +708,14 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
       // Reset previous in-memory session and initialize target persona's E2EE keys
       e2eeCrypto.clearSession();
+      setChats([]);
+      setMessages([]);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('dmstask_persisted_chats');
+        localStorage.removeItem('dmstask_persisted_messages');
+        localStorage.removeItem('dmstask_persisted_active_chat_id');
+      }
+      setActiveChatIdState(null);
       await e2eeCrypto.initUser(uid, userEmail);
 
       // Re-fetch all data and re-decrypt conversations and messages for this persona
