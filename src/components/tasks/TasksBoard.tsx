@@ -20,6 +20,7 @@ import {
 export const TasksBoard: React.FC = () => {
   const {
     tasks,
+    departments: storeDepartments,
     currentUser,
     openCreateTaskModal,
     activeChatId,
@@ -27,6 +28,8 @@ export const TasksBoard: React.FC = () => {
     isLoadingDms,
     isDmsConnected,
   } = useAppStore();
+
+  const departmentList = storeDepartments && storeDepartments.length > 0 ? storeDepartments : DMS_DEPARTMENTS;
 
   const [activeFilterTab, setActiveFilterTab] = useState<'my' | 'assigned_by_me' | 'team' | 'overdue' | 'all'>('all');
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>('list');
@@ -230,7 +233,7 @@ export const TasksBoard: React.FC = () => {
               className="px-2 py-1 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 border border-transparent text-slate-700 dark:text-slate-300 font-medium focus:outline-none cursor-pointer"
             >
               <option value="all">All Departments</option>
-              {DMS_DEPARTMENTS.map((d) => (
+              {departmentList.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.label}
                 </option>

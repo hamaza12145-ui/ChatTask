@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { Department, User } from '../../types';
-import { getDepartmentMeta } from '../../services/dmsApi';
+import { getDepartmentMeta, dmsApi } from '../../services/dmsApi';
 import {
   ChevronDown,
   ChevronRight,
@@ -27,18 +27,18 @@ export const DepartmentDirectory: React.FC<DepartmentDirectoryProps> = ({
   onSelectMember,
   compact = false,
 }) => {
-  const { users, currentUser, chats, setActiveChatId, createChat, setActiveMobileTab, addToast } = useAppStore();
+  const { users, departments: storeDepartments, currentUser, chats, setActiveChatId, createChat, setActiveMobileTab, addToast } = useAppStore();
 
-  // Dynamically compute departments that exist in the DMS user list
+  // Dynamically compute departments that exist in the ERP backend and user list
   const activeDepartments = useMemo(() => {
     const set = new Set<string>();
-    // Priority core DMS departments
-    ['admin', 'program', 'accounts_and_finance', 'store', 'procurements', 'fund_raising'].forEach((d) => set.add(d));
+    const deptList = storeDepartments && storeDepartments.length > 0 ? storeDepartments : dmsApi.getDepartments();
+    deptList.forEach((d) => set.add(d.id));
     users.forEach((u) => {
       if (u.department) set.add(u.department.toLowerCase());
     });
     return Array.from(set);
-  }, [users]);
+  }, [users, storeDepartments]);
 
   // Open department states - default active departments to open
   const [openDepartments, setOpenDepartments] = useState<Record<string, boolean>>({

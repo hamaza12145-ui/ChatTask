@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../../store/useAppStore';
-import { DMS_CREDENTIALS } from '../../services/dmsApi';
 import {
   Mail,
   Lock,
@@ -18,69 +17,15 @@ import {
   Moon,
 } from 'lucide-react';
 
-interface QuickAccount {
-  name: string;
-  email: string;
-  designation: string;
-  department: string;
-  badgeBg: string;
-}
-
-const QUICK_ACCOUNTS: QuickAccount[] = [
-  {
-    name: 'Admin',
-    email: 'admin@example.com',
-    designation: 'System Administrator',
-    department: 'Administration',
-    badgeBg: 'bg-slate-700',
-  },
-  {
-    name: 'Raza Ali36',
-    email: 'anjam@example.com',
-    designation: 'IT Manager',
-    department: 'Information Technology',
-    badgeBg: 'bg-indigo-600',
-  },
-  {
-    name: 'Finance Officer',
-    email: 'finance@example.com',
-    designation: 'Accounts & Finance Officer',
-    department: 'Accounts & Finance',
-    badgeBg: 'bg-amber-600',
-  },
-  {
-    name: 'Program Officer',
-    email: 'program@example.com',
-    designation: 'Program & Operations Officer',
-    department: 'Program & Operations',
-    badgeBg: 'bg-emerald-600',
-  },
-  {
-    name: 'Store Officer',
-    email: 'store@example.com',
-    designation: 'Store & Warehouse Manager',
-    department: 'Store & Inventory',
-    badgeBg: 'bg-cyan-600',
-  },
-  {
-    name: 'Procurement Officer',
-    email: 'procurements@example.com',
-    designation: 'Procurement & Logistics',
-    department: 'Procurements',
-    badgeBg: 'bg-blue-600',
-  },
-];
-
 export const LoginView: React.FC = () => {
   const { login, isDark, toggleTheme } = useAppStore();
 
-  const [email, setEmail] = useState('admin@example.com');
-  const [password, setPassword] = useState('admin%1123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
+  const [rememberMe, setRememberMe] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [showQuickSelect, setShowQuickSelect] = useState(true);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,13 +51,6 @@ export const LoginView: React.FC = () => {
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const handleSelectQuickAccount = (acc: QuickAccount) => {
-    setEmail(acc.email);
-    const pwd = DMS_CREDENTIALS[acc.email] || 'admin%1123';
-    setPassword(pwd);
-    setErrorMessage(null);
   };
 
   return (
@@ -155,7 +93,7 @@ export const LoginView: React.FC = () => {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} autoComplete="off" className="space-y-4">
             {/* Email Field */}
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -167,6 +105,9 @@ export const LoginView: React.FC = () => {
                 </div>
                 <input
                   type="email"
+                  name="email"
+                  id="email"
+                  autoComplete="off"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@example.com"
@@ -190,6 +131,9 @@ export const LoginView: React.FC = () => {
                 </div>
                 <input
                   type={showPassword ? 'text' : 'password'}
+                  name="password"
+                  id="password"
+                  autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••••••"

@@ -743,24 +743,19 @@ export const TaskFormModal: React.FC = () => {
     taskModalInitialData,
     createTask,
     users,
+    departments: storeDepartments,
     currentUser,
     activeChat,
     addToast,
   } = useAppStore();
 
-  const departmentOptions = [
-    { value: 'admin', label: 'Admin' },
-    { value: 'program', label: 'Program' },
-    { value: 'store', label: 'Store' },
-    { value: 'procurements', label: 'Procurements' },
-    { value: 'accounts_and_finance', label: 'Accounts & Finance' },
-    { value: 'fund_raising', label: 'Fund Raising' },
-    { value: 'it', label: 'I.T' },
-    { value: 'hr', label: 'HR' },
-    { value: 'marketing', label: 'Marketing' },
-    { value: 'audio_video', label: 'Audio Video' },
-    { value: 'meal', label: 'Meal' },
-  ];
+  const departmentOptions = useMemo(() => {
+    const list = storeDepartments && storeDepartments.length > 0 ? storeDepartments : dmsApi.getDepartments();
+    return list.map((d) => ({
+      value: d.id,
+      label: d.label,
+    }));
+  }, [storeDepartments]);
 
   const isAdmin = useMemo(() => {
     const r = String(currentUser?.role || '').toLowerCase();

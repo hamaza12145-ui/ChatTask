@@ -14,7 +14,7 @@ import {
   DeviceView,
 } from '../types';
 // SEED data completely removed - ERP-Task APIs and PostgreSQL database are the single source of truth.
-import { dmsApi, DMS_CREDENTIALS, getDepartmentMeta } from '../services/dmsApi';
+import { dmsApi, getDepartmentMeta, DepartmentMeta } from '../services/dmsApi';
 import { e2eeCrypto } from '../services/e2eeCrypto';
 
 interface Toast {
@@ -27,6 +27,8 @@ interface AppStoreContextType {
   // Current user & Users (Fetched from DMS)
   currentUser: User;
   users: User[];
+  departments: DepartmentMeta[];
+  fetchDepartments: () => Promise<DepartmentMeta[]>;
   setCurrentUserId: (userId: string) => void;
   getUserById: (userId: string) => User | undefined;
   isLoadingDms: boolean;
@@ -163,16 +165,16 @@ interface AppStoreContextType {
 
 const AppStoreContext = createContext<AppStoreContextType | null>(null);
 
-// Fallback initial admin user while DMS is syncing
-const INITIAL_ADMIN_USER: User = {
-  id: '5',
-  name: 'Admin',
-  designation: 'System Administrator',
+// Fallback empty user while data is loading
+const FALLBACK_EMPTY_USER: User = {
+  id: '',
+  name: 'User',
+  designation: 'Staff',
   department: 'admin',
-  avatar: 'AD',
+  avatar: 'US',
   avatarBg: 'bg-slate-700',
   status: 'online',
-  email: 'admin@example.com',
+  email: '',
 };
 
 export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -203,12 +205,24 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, []);
 
   // DMS Users & Connection state
-  const [users, setUsers] = useState<User[]>([INITIAL_ADMIN_USER]);
+  const [users, setUsers] = useState<User[]>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('dmstask_persisted_user');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed.id) return [parsed];
+        } catch {}
+      }
+    }
+    return [];
+  });
+  const [departments, setDepartments] = useState<DepartmentMeta[]>(() => dmsApi.getDepartments());
   const [currentUserId, setLocalCurrentUserId] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('dmstask_persisted_user_id') || '5';
+      return localStorage.getItem('dmstask_persisted_user_id') || '';
     }
-    return '5';
+    return '';
   });
   const [isLoadingDms, setIsLoadingDms] = useState<boolean>(true);
   const [isDmsConnected, setIsDmsConnected] = useState<boolean>(false);
@@ -224,7 +238,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   });
 
   // Active user resolver
-  const currentUser = users.find((u) => u.id === currentUserId) || users[0] || INITIAL_ADMIN_USER;
+  const currentUser = users.find((u) => u.id === currentUserId) || users[0] || FALLBACK_EMPTY_USER;
   const getUserById = useCallback((userId: string) => users.find((u) => u.id === String(userId)), [users]);
 
   // Tasks state (Fetched from DMS)
@@ -419,18 +433,27 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       setIsAuthenticated(true);
 
       // Ensure active user E2EE identity key is ready BEFORE decrypting messages
-      if (currentUserId) {
-        await e2eeCrypto.initUser(currentUserId);
+      if (currentUserId && e2eeCrypto.isSupported()) {
+        try {
+          await e2eeCrypto.initUser(currentUserId);
+        } catch (e2eErr) {
+          console.warn('E2EE init warning:', e2eErr);
+        }
       }
 
-      // Fetch Users, Tasks, Conversations, Messages, and Notifications concurrently from ERP-Task backend
-      const [fetchedUsers, fetchedTasks, fetchedConversations, fetchedMessages, fetchedNotifications] = await Promise.all([
+      // Fetch Departments, Users, Tasks, Conversations, Messages, and Notifications concurrently from ERP-Task backend
+      const [fetchedDepts, fetchedUsers, fetchedTasks, fetchedConversations, fetchedMessages, fetchedNotifications] = await Promise.all([
+        dmsApi.fetchDepartments().catch(() => []),
         dmsApi.fetchUsers(),
         dmsApi.fetchTasks(),
         dmsApi.fetchConversations(currentUserId),
         dmsApi.fetchMessages(undefined, 2000, currentUserId),
         dmsApi.fetchNotifications(currentUserId),
       ]);
+
+      if (fetchedDepts && fetchedDepts.length > 0) {
+        setDepartments(fetchedDepts);
+      }
 
       if (fetchedUsers.length > 0) {
         setUsers(fetchedUsers);
@@ -687,7 +710,13 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           localStorage.setItem('dmstask_is_authenticated', 'true');
         }
         e2eeCrypto.clearSession();
-        await e2eeCrypto.initUser(uid, email, password);
+        if (e2eeCrypto.isSupported()) {
+          try {
+            await e2eeCrypto.initUser(uid, email, password);
+          } catch (e2eErr) {
+            console.warn('E2EE init warning:', e2eErr);
+          }
+        }
         await refreshDmsData();
         addToast(`Welcome back, ${loggedUser.name || 'User'}!`, 'success');
         return true;
@@ -733,23 +762,10 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       }
 
       const targetUser = users.find((u) => String(u.id) === uid);
-      const userEmail =
-        targetUser?.email ||
-        Object.keys(DMS_CREDENTIALS).find(
-          (e) =>
-            (uid === '1' && e.startsWith('store')) ||
-            (uid === '2' && e.startsWith('procure')) ||
-            (uid === '3' && e.startsWith('program')) ||
-            (uid === '4' && e.startsWith('finance')) ||
-            (uid === '5' && e.startsWith('admin')) ||
-            (uid === '6' && (e.startsWith('anjam') || e.startsWith('raza')))
-        );
-
-      if (userEmail) {
-        try {
-          await dmsApi.login(userEmail);
-        } catch (err: any) {
-          console.warn('Persona login notice:', err?.message);
+      if (targetUser?.email) {
+        dmsApi.currentEmail = targetUser.email;
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('dms_user_email', targetUser.email);
         }
       }
 
@@ -763,16 +779,22 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         localStorage.removeItem('dmstask_persisted_active_chat_id');
       }
       setActiveChatIdState(null);
-      await e2eeCrypto.initUser(uid, userEmail);
+      await e2eeCrypto.initUser(uid, targetUser?.email);
 
       // Re-fetch all data and re-decrypt conversations and messages for this persona
       await refreshDmsData();
 
-      const displayName = targetUser?.name || userEmail?.split('@')[0] || `User #${uid}`;
+      const displayName = targetUser?.name || targetUser?.email?.split('@')[0] || `User #${uid}`;
       addToast(`Active persona: ${displayName}`, 'info');
     },
     [users, refreshDmsData, addToast]
   );
+
+  const fetchDepartments = useCallback(async () => {
+    const depts = await dmsApi.fetchDepartments();
+    setDepartments(depts);
+    return depts;
+  }, []);
 
   // Task Drawer open/close
   const openTaskDrawer = useCallback((taskId: string) => {
@@ -1623,6 +1645,8 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       value={{
         currentUser,
         users,
+        departments,
+        fetchDepartments,
         setCurrentUserId,
         getUserById,
         isLoadingDms,

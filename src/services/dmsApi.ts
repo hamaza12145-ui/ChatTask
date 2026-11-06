@@ -10,17 +10,6 @@ export const DMS_BASE_URL =
   (import.meta as any).env?.VITE_DMS_API_URL ||
   'http://localhost:3000';
 
-// Known default credentials for DMS demo persona accounts
-export const DMS_CREDENTIALS: Record<string, string> = {
-  'admin@example.com': 'admin%1123',
-  'store@example.com': 'store%1123',
-  'procurements@example.com': 'procurements%1123',
-  'program@example.com': 'program%1123',
-  'finance@example.com': 'finance%1123',
-  'anjam@example.com': 'admin%1123',
-  'raza.ali36@mtjf.org': 'admin%1123',
-};
-
 // Department metadata & friendly labels for all official DMS departments
 export interface DepartmentMeta {
   id: Department;
@@ -31,123 +20,175 @@ export interface DepartmentMeta {
   borderColor: string;
 }
 
-export const DMS_DEPARTMENTS: DepartmentMeta[] = [
-  {
-    id: 'admin',
-    label: 'Administration',
-    description: 'Executive administration, policy, and compliance',
+const KNOWN_DEPARTMENT_LABELS: Record<string, string> = {
+  admin: 'Administration',
+  store: 'Store & Inventory',
+  procurements: 'Procurements',
+  accounts_and_finance: 'Accounts & Finance',
+  program: 'Program & Operations',
+  it: 'Information Technology',
+  hr: 'Human Resources',
+  marketing: 'Marketing & PR',
+  audio_video: 'Audio / Video',
+  fund_raising: 'Fund Raising',
+  meal: 'Food & Nutrition (Meal)',
+  health: 'Health & Medical',
+  executive_office: 'Executive Office',
+  ceo: 'CEO Office',
+  internal_audit: 'Internal Audit',
+  crd: 'Corporate Resource Dev (CRD)',
+  aas_lab: 'AAS Lab',
+};
+
+const KNOWN_DEPARTMENT_DESCRIPTIONS: Record<string, string> = {
+  admin: 'Executive administration, policy, and compliance',
+  store: 'Inventory management, stock tracking, and warehousing',
+  procurements: 'Vendor procurement, requisition tracking, and purchase orders',
+  accounts_and_finance: 'Financial accounting, audits, disbursements, and budgeting',
+  program: 'Field execution, aid delivery, and welfare programs',
+  it: 'Software systems, network infrastructure, and DevOps',
+  hr: 'Staff recruitment, performance, payroll, and benefits',
+  marketing: 'Public relations, social media, and digital campaigns',
+  audio_video: 'Media production, recording, and digital broadcasting',
+  fund_raising: 'Campaigns, donor outreach, and recurring pledges',
+  meal: 'Ration distributions, food drives, and nutrition support',
+  health: 'Medical camps, clinics, and health initiatives',
+  executive_office: 'Executive planning, governance, and secretarial office',
+  ceo: 'Office of the Chief Executive Officer',
+  internal_audit: 'Compliance audit, process inspection, and risk assessment',
+  crd: 'Corporate partnerships, CSR grants, and institutional funding',
+  aas_lab: 'AAS Diagnostic Laboratory, pathology, and research',
+};
+
+const KNOWN_DEPARTMENT_STYLES: Record<string, { color: string; bgColor: string; borderColor: string }> = {
+  admin: {
     color: 'text-slate-700 dark:text-slate-300',
     bgColor: 'bg-slate-100 dark:bg-slate-800/80',
     borderColor: 'border-slate-200 dark:border-slate-700',
   },
-  {
-    id: 'program',
-    label: 'Program & Operations',
-    description: 'Field execution, aid delivery, and welfare programs',
+  program: {
     color: 'text-emerald-700 dark:text-emerald-400',
     bgColor: 'bg-emerald-50 dark:bg-emerald-950/40',
     borderColor: 'border-emerald-200 dark:border-emerald-800/50',
   },
-  {
-    id: 'accounts_and_finance',
-    label: 'Accounts & Finance',
-    description: 'Financial accounting, audits, disbursements, and budgeting',
+  accounts_and_finance: {
     color: 'text-amber-600 dark:text-amber-400',
     bgColor: 'bg-amber-50 dark:bg-amber-950/40',
     borderColor: 'border-amber-200 dark:border-amber-800/50',
   },
-  {
-    id: 'store',
-    label: 'Store & Inventory',
-    description: 'Inventory management, stock tracking, and warehousing',
+  store: {
     color: 'text-cyan-700 dark:text-cyan-400',
     bgColor: 'bg-cyan-50 dark:bg-cyan-950/40',
     borderColor: 'border-cyan-200 dark:border-cyan-800/50',
   },
-  {
-    id: 'procurements',
-    label: 'Procurements',
-    description: 'Vendor procurement, requisition tracking, and purchase orders',
+  procurements: {
     color: 'text-blue-600 dark:text-blue-400',
     bgColor: 'bg-blue-50 dark:bg-blue-950/40',
     borderColor: 'border-blue-200 dark:border-blue-800/50',
   },
-  {
-    id: 'fund_raising',
-    label: 'Fund Raising',
-    description: 'Campaigns, donor outreach, and recurring pledges',
+  fund_raising: {
     color: 'text-rose-600 dark:text-rose-400',
     bgColor: 'bg-rose-50 dark:bg-rose-950/40',
     borderColor: 'border-rose-200 dark:border-rose-800/50',
   },
-  {
-    id: 'it',
-    label: 'Information Technology',
-    description: 'Software systems, network infrastructure, and DevOps',
+  it: {
     color: 'text-indigo-600 dark:text-indigo-400',
     bgColor: 'bg-indigo-50 dark:bg-indigo-950/40',
     borderColor: 'border-indigo-200 dark:border-indigo-800/50',
   },
-  {
-    id: 'hr',
-    label: 'Human Resources',
-    description: 'Staff recruitment, performance, payroll, and benefits',
+  hr: {
     color: 'text-purple-600 dark:text-purple-400',
     bgColor: 'bg-purple-50 dark:bg-purple-950/40',
     borderColor: 'border-purple-200 dark:border-purple-800/50',
   },
-  {
-    id: 'marketing',
-    label: 'Marketing & PR',
-    description: 'Public relations, social media, and digital campaigns',
+  marketing: {
     color: 'text-fuchsia-600 dark:text-fuchsia-400',
     bgColor: 'bg-fuchsia-50 dark:bg-fuchsia-950/40',
     borderColor: 'border-fuchsia-200 dark:border-fuchsia-800/50',
   },
-  {
-    id: 'crd',
-    label: 'Corporate Resource Dev (CRD)',
-    description: 'Corporate partnerships, CSR grants, and institutional funding',
-    color: 'text-teal-600 dark:text-teal-400',
-    bgColor: 'bg-teal-50 dark:bg-teal-950/40',
-    borderColor: 'border-teal-200 dark:border-teal-800/50',
+  audio_video: {
+    color: 'text-violet-600 dark:text-violet-400',
+    bgColor: 'bg-violet-50 dark:bg-violet-950/40',
+    borderColor: 'border-violet-200 dark:border-violet-800/50',
   },
-  {
-    id: 'health',
-    label: 'Health & Medical',
-    description: 'Medical camps, clinics, and health initiatives',
-    color: 'text-red-600 dark:text-red-400',
-    bgColor: 'bg-red-50 dark:bg-red-950/40',
-    borderColor: 'border-red-200 dark:border-red-800/50',
-  },
-  {
-    id: 'meal',
-    label: 'Food & Nutrition (Meal)',
-    description: 'Ration distributions, food drives, and nutrition support',
+  meal: {
     color: 'text-orange-600 dark:text-orange-400',
     bgColor: 'bg-orange-50 dark:bg-orange-950/40',
     borderColor: 'border-orange-200 dark:border-orange-800/50',
   },
-];
+  health: {
+    color: 'text-red-600 dark:text-red-400',
+    bgColor: 'bg-red-50 dark:bg-red-950/40',
+    borderColor: 'border-red-200 dark:border-red-800/50',
+  },
+  executive_office: {
+    color: 'text-sky-700 dark:text-sky-400',
+    bgColor: 'bg-sky-50 dark:bg-sky-950/40',
+    borderColor: 'border-sky-200 dark:border-sky-800/50',
+  },
+  ceo: {
+    color: 'text-emerald-800 dark:text-emerald-300',
+    bgColor: 'bg-emerald-100 dark:bg-emerald-950/60',
+    borderColor: 'border-emerald-300 dark:border-emerald-700',
+  },
+  internal_audit: {
+    color: 'text-zinc-700 dark:text-zinc-300',
+    bgColor: 'bg-zinc-100 dark:bg-zinc-800/80',
+    borderColor: 'border-zinc-200 dark:border-zinc-700',
+  },
+  crd: {
+    color: 'text-teal-600 dark:text-teal-400',
+    bgColor: 'bg-teal-50 dark:bg-teal-950/40',
+    borderColor: 'border-teal-200 dark:border-teal-800/50',
+  },
+  aas_lab: {
+    color: 'text-cyan-800 dark:text-cyan-300',
+    bgColor: 'bg-cyan-100 dark:bg-cyan-950/60',
+    borderColor: 'border-cyan-300 dark:border-cyan-700',
+  },
+};
 
-export const getDepartmentMeta = (dept: string): DepartmentMeta => {
-  const normalized = dept.toLowerCase().trim();
-  const found = DMS_DEPARTMENTS.find((d) => d.id === normalized);
-  if (found) return found;
+export const createDepartmentMeta = (dept: string): DepartmentMeta => {
+  const normalized = (dept || 'admin').toLowerCase().trim();
+  const label =
+    KNOWN_DEPARTMENT_LABELS[normalized] ||
+    normalized
+      .split('_')
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
 
-  const prettyLabel = normalized
-    .split('_')
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
+  const description =
+    KNOWN_DEPARTMENT_DESCRIPTIONS[normalized] ||
+    `${label} department`;
+
+  const styles =
+    KNOWN_DEPARTMENT_STYLES[normalized] || {
+      color: 'text-slate-700 dark:text-slate-300',
+      bgColor: 'bg-slate-100 dark:bg-slate-800/80',
+      borderColor: 'border-slate-200 dark:border-slate-700',
+    };
 
   return {
     id: normalized as Department,
-    label: prettyLabel,
-    description: `${prettyLabel} department`,
-    color: 'text-slate-700 dark:text-slate-300',
-    bgColor: 'bg-slate-100 dark:bg-slate-800/80',
-    borderColor: 'border-slate-200 dark:border-slate-700',
+    label,
+    description,
+    color: styles.color,
+    bgColor: styles.bgColor,
+    borderColor: styles.borderColor,
   };
+};
+
+// Dynamic departments list synchronized with ERP-Task backend API
+export const DMS_DEPARTMENTS: DepartmentMeta[] = [];
+
+export const getDepartmentMeta = (dept: string): DepartmentMeta => {
+  const normalized = (dept || 'admin').toLowerCase().trim();
+  const found = DMS_DEPARTMENTS.find((d) => d.id === normalized);
+  if (found) return found;
+
+  const generated = createDepartmentMeta(normalized);
+  DMS_DEPARTMENTS.push(generated);
+  return generated;
 };
 
 export const formatDepartmentName = (dept: string): string => {
@@ -283,7 +324,7 @@ function computeNotificationsFingerprint(notifs: AppNotification[]): string {
 class DmsApiService {
   private token: string | null = null;
   public currentEmail: string | null = null;
-  private currentUserId: string = '5';
+  private currentUserId: string = '';
   private activeChatId: string | null = null;
 
   // Real-time Dynamic Live Sync infrastructure
@@ -304,6 +345,7 @@ class DmsApiService {
 
   // Cached data snapshots
   private cachedUsers: User[] = [];
+  private cachedDepartments: DepartmentMeta[] = [];
   private cachedTasks: Task[] = [];
   private cachedConversations: Chat[] = [];
   private cachedMessages: ChatMessage[] = [];
@@ -317,7 +359,10 @@ class DmsApiService {
     if (typeof window !== 'undefined') {
       this.token = localStorage.getItem('dms_token');
       this.currentEmail = localStorage.getItem('dms_user_email');
-      this.currentUserId = localStorage.getItem('dmstask_persisted_user_id') || '5';
+      this.currentUserId = localStorage.getItem('dmstask_persisted_user_id') || '';
+
+      // Initialize departments dynamically from ERP backend
+      this.fetchDepartments().catch(() => {});
 
       // Setup Cross-Tab Dynamic Synchronization via BroadcastChannel
       try {
@@ -534,7 +579,15 @@ class DmsApiService {
         Promise<ChatMessage[] | null>,
         Promise<AppNotification[] | null>,
       ] = [
-        shouldFetchUsers ? this.fetchUsers().catch(() => null) : Promise.resolve(null),
+        shouldFetchUsers
+          ? (async () => {
+              const [users] = await Promise.all([
+                this.fetchUsers().catch(() => null),
+                this.fetchDepartments().catch(() => null),
+              ]);
+              return users;
+            })()
+          : Promise.resolve(null),
         shouldFetchTasks ? this.fetchTasks().catch(() => null) : Promise.resolve(null),
         shouldFetchConvs ? this.fetchConversations(this.currentUserId).catch(() => null) : Promise.resolve(null),
         shouldFetchMessages ? this.fetchMessages(undefined, 2000, this.currentUserId).catch(() => null) : Promise.resolve(null),
@@ -662,11 +715,13 @@ class DmsApiService {
    * Login to DMS with credentials
    */
   async login(email: string, password?: string): Promise<{ token: string; user: any }> {
-    const pwd = password || DMS_CREDENTIALS[email] || 'admin%1123';
+    if (!password) {
+      throw new Error('Password is required');
+    }
     const response = await fetch(`${DMS_BASE_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password: pwd }),
+      body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
     });
 
     if (!response.ok) {
@@ -681,33 +736,30 @@ class DmsApiService {
         ? `${user.first_name} ${user.last_name || ''}`.trim()
         : (user.email ? user.email.split('@')[0] : 'User');
     }
+    this.currentUserId = String(user.id || '');
     this.setToken(data.token, email);
+    if (typeof window !== 'undefined' && user.id) {
+      localStorage.setItem('dmstask_persisted_user_id', String(user.id));
+      localStorage.setItem('dmstask_persisted_user', JSON.stringify(user));
+    }
     return { token: data.token, user };
   }
 
   /**
-   * Ensure the API client is authenticated.
-   * If a specific user email is requested, login as that user.
+   * Ensure the API client is authenticated with valid session token.
    */
-  async ensureAuthenticated(preferredEmail?: string): Promise<string> {
+  async ensureAuthenticated(): Promise<string> {
     if (this.token) {
-      if (!preferredEmail || this.currentEmail === preferredEmail) {
-        return this.token;
+      return this.token;
+    }
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('dms_token');
+      if (stored) {
+        this.token = stored;
+        return stored;
       }
     }
-
-    const targetEmail = preferredEmail || this.currentEmail || 'admin@example.com';
-    try {
-      const { token } = await this.login(targetEmail);
-      return token;
-    } catch {
-      // Fallback to admin login
-      if (targetEmail !== 'admin@example.com') {
-        const { token } = await this.login('admin@example.com');
-        return token;
-      }
-      throw new Error('Unable to authenticate with DMS APIs');
-    }
+    throw new Error('Authentication required. Please sign in.');
   }
 
   /**
@@ -734,9 +786,8 @@ class DmsApiService {
 
     // Handle session expiration
     if (response.status === 401) {
-      token = await this.ensureAuthenticated('admin@example.com');
-      headers['Authorization'] = `Bearer ${token}`;
-      response = await fetch(url, { ...options, headers });
+      this.logout().catch(() => {});
+      throw new Error('Session expired. Please sign in again.');
     }
 
     if (!response.ok) {
@@ -752,34 +803,129 @@ class DmsApiService {
   // ==========================================
 
   /**
-   * Fetch all registered DMS users from DMS API
+   * Fetch departments dynamically through APIs using the existing department configuration in:
+   * D:\TASK\ERP-Task\erp_backend\src\utils\admin\index.js and users module
+   */
+  async fetchDepartments(): Promise<DepartmentMeta[]> {
+    const deptSet = new Set<string>();
+
+    // 1. Query ERP-Task backend users module department validation to get backend's configured Department list
+    try {
+      const token = this.getToken();
+      const res = await fetch(`${DMS_BASE_URL}/users/department/_list`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        const msg = body?.message || '';
+        // Pattern: "Invalid department. Must be one of: store, procurements, program, ..."
+        const match = msg.match(/Must be one of:\s*(.+)$/i);
+        if (match && match[1]) {
+          match[1]
+            .split(',')
+            .map((s: string) => s.trim().toLowerCase())
+            .filter(Boolean)
+            .forEach((d: string) => deptSet.add(d));
+        }
+      }
+    } catch (e: any) {
+      console.warn('Could not query department validation from ERP-Task:', e?.message);
+    }
+
+    // 2. Also inspect departments from active ERP users
+    try {
+      const users = this.cachedUsers.length > 0 ? this.cachedUsers : await this.fetchUsers().catch(() => []);
+      users.forEach((u) => {
+        if (u.department) deptSet.add(u.department.toLowerCase());
+      });
+    } catch {}
+
+    // 3. Fallback to standard ERP-Task departments (matching src/utils/admin/index.js) if set is empty
+    if (deptSet.size === 0) {
+      [
+        'admin',
+        'store',
+        'procurements',
+        'accounts_and_finance',
+        'program',
+        'it',
+        'hr',
+        'marketing',
+        'audio_video',
+        'fund_raising',
+        'meal',
+        'health',
+        'executive_office',
+        'ceo',
+        'internal_audit',
+        'crd',
+        'aas_lab',
+      ].forEach((d) => deptSet.add(d));
+    }
+
+    const list = Array.from(deptSet).map((d) => createDepartmentMeta(d));
+    this.cachedDepartments = list;
+
+    // Synchronize live exported DMS_DEPARTMENTS array
+    DMS_DEPARTMENTS.length = 0;
+    list.forEach((item) => DMS_DEPARTMENTS.push(item));
+
+    return list;
+  }
+
+  public getDepartments(): DepartmentMeta[] {
+    if (this.cachedDepartments.length === 0) {
+      this.fetchDepartments().catch(() => {});
+    }
+    return this.cachedDepartments.length > 0 ? this.cachedDepartments : DMS_DEPARTMENTS;
+  }
+
+  /**
+   * Fetch users dynamically through APIs from the existing backend user module:
+   * D:\TASK\ERP-Task\erp_backend\src\users (user.controller.ts)
    */
   async fetchUsers(): Promise<User[]> {
     let dmsUsers: any[] = [];
 
-    // 1. First try /chat/users (accessible to all authenticated team members)
+    // 1. Primary: Fetch from ERP backend users module (src/users/user.controller.ts)
     try {
-      const chatRes = await this.request<{ success?: boolean; data: any[] }>('/chat/users').catch(() => null);
-      if (chatRes && Array.isArray(chatRes.data) && chatRes.data.length > 0) {
-        dmsUsers = chatRes.data;
+      const res = await this.request<{ data?: any[]; pagination?: any }>('/users?page=1&pageSize=200');
+      if (res && Array.isArray(res.data) && res.data.length > 0) {
+        dmsUsers = res.data;
       }
-    } catch {}
+    } catch (err: any) {
+      console.warn('Could not list users from /users:', err?.message);
+    }
 
-    // 2. Fallback to /users
+    // 2. Fallback: try /chat/users
     if (dmsUsers.length === 0) {
       try {
-        const res = await this.request<{ success?: boolean; data: any[] }>('/users?page=1&pageSize=100');
-        dmsUsers = res.data || [];
-      } catch (err: any) {
-        console.warn('Could not list users from /users:', err?.message);
-        if (this.cachedUsers.length > 0) {
-          return this.cachedUsers;
+        const chatRes = await this.request<{ success?: boolean; data?: any[] }>('/chat/users');
+        if (chatRes && Array.isArray(chatRes.data) && chatRes.data.length > 0) {
+          dmsUsers = chatRes.data;
         }
-        return [];
+      } catch (err: any) {
+        console.warn('Could not list users from /chat/users:', err?.message);
       }
     }
 
-    return dmsUsers.map((u: any): User => {
+    // 3. Fallback: try /users/options
+    if (dmsUsers.length === 0) {
+      try {
+        const optionsRes = await this.request<any[]>('/users/options');
+        if (Array.isArray(optionsRes) && optionsRes.length > 0) {
+          dmsUsers = optionsRes;
+        }
+      } catch (err: any) {
+        console.warn('Could not list users from /users/options:', err?.message);
+      }
+    }
+
+    if (dmsUsers.length === 0) {
+      return this.cachedUsers;
+    }
+
+    const mappedUsers = dmsUsers.map((u: any): User => {
       const rawFullName =
         [u.first_name, u.last_name].filter(Boolean).join(' ').trim() ||
         (u.name && u.name.trim()) ||
@@ -818,6 +964,17 @@ class DmsApiService {
         directReportIds: directReports.length > 0 ? directReports : undefined,
       };
     });
+
+    this.cachedUsers = mappedUsers;
+
+    // Dynamically register any departments discovered on active users
+    mappedUsers.forEach((u) => {
+      if (u.department) {
+        getDepartmentMeta(u.department);
+      }
+    });
+
+    return mappedUsers;
   }
 
   /**

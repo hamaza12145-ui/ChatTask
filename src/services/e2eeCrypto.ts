@@ -7,17 +7,8 @@
  * Server, database, and unauthorized administrators only ever see AES-GCM ciphertext.
  */
 
-import { dmsApi, DMS_CREDENTIALS } from './dmsApi';
+import { dmsApi } from './dmsApi';
 import { ChatMessage, TaskAttachment, QuotedMessage } from '../types';
-
-const USER_PASSWORDS_BY_ID: Record<string, string> = {
-  '1': 'store%1123',
-  '2': 'procurements%1123',
-  '3': 'program%1123',
-  '4': 'finance%1123',
-  '5': 'admin%1123',
-  '6': 'admin%1123',
-};
 
 export interface DecryptedMessagePayload {
   text: string;
@@ -82,6 +73,10 @@ class E2eeCryptoService {
     }
   }
 
+  public isSupported(): boolean {
+    return typeof window !== 'undefined' && Boolean(window.crypto && window.crypto.subtle);
+  }
+
   private getSubtle(): SubtleCrypto {
     if (!this.cryptoSubtle) {
       if (typeof window !== 'undefined' && window.crypto?.subtle) {
@@ -100,13 +95,11 @@ class E2eeCryptoService {
    */
   private async deriveUserKdk(userId: string, email?: string, password?: string): Promise<CryptoKey> {
     const subtle = this.getSubtle();
-    const effectiveEmail = email || (dmsApi.currentEmail ? dmsApi.currentEmail : undefined);
     const effectivePassword =
       password ||
-      (effectiveEmail && DMS_CREDENTIALS[effectiveEmail]) ||
-      USER_PASSWORDS_BY_ID[String(userId)] ||
-      DMS_CREDENTIALS['admin@example.com'] ||
-      'admin%1123';
+      (typeof window !== 'undefined' ? sessionStorage.getItem('dms_session_secret_' + userId) : null) ||
+      dmsApi.getToken() ||
+      `user_kdk_seed_${userId}`;
 
     const salt = 'dms_e2ee_salt_' + userId;
     const enc = new TextEncoder();
@@ -140,6 +133,9 @@ class E2eeCryptoService {
    */
   async initUser(userId: string, email?: string, password?: string): Promise<void> {
     if (!userId) return;
+    if (!this.isSupported()) {
+      return;
+    }
     const uid = String(userId);
 
     // If already initialized for this user with a valid private key, return immediately
@@ -451,6 +447,7 @@ class E2eeCryptoService {
     convKey: CryptoKey,
     participantIds: string[]
   ): Promise<void> {
+    if (!this.isSupported()) return;
     if (!participantIds || participantIds.length === 0) return;
     const subtle = this.getSubtle();
 
@@ -496,6 +493,7 @@ class E2eeCryptoService {
     participantIds: string[] = [],
     requestedVersion?: number
   ): Promise<{ key: CryptoKey; version: number } | null> {
+    if (!this.isSupported()) return null;
     const subtle = this.getSubtle();
     const version = requestedVersion || this.conversationKeyVersions.get(conversationId) || 1;
     const cacheKey = `${conversationId}:v${version}`;
@@ -665,6 +663,13 @@ class E2eeCryptoService {
       replyTo?: QuotedMessage;
     }
   ): Promise<EncryptedMessageResult> {
+    if (!this.isSupported()) {
+      return {
+        ciphertext: payload.text,
+        isEncrypted: false,
+        keyVersion: 1,
+      };
+    }
     const subtle = this.getSubtle();
     const keyInfo = await this.getOrCreateConversationKey(conversationId, participantIds);
 
@@ -730,6 +735,15 @@ class E2eeCryptoService {
         text: rawText || '',
         isEncrypted: false,
         isDecrypted: true,
+      };
+    }
+
+    if (!this.isSupported()) {
+      return {
+        text: '🔒 [Encrypted Message - Open via http://localhost or HTTPS to view]',
+        isEncrypted: true,
+        isDecrypted: false,
+        keyVersion: fallbackKeyVersion || 1,
       };
     }
 
