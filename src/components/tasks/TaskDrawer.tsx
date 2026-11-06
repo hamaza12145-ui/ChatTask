@@ -217,7 +217,7 @@ export const TaskDrawer: React.FC = () => {
         <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 space-y-3">
           <div className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
             <span>Task Lifecycle</span>
-            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">Synced</span>
+            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">Active</span>
           </div>
 
           {/* Under review banner */}
@@ -529,7 +529,7 @@ export const TaskDrawer: React.FC = () => {
             <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">
               Comments &amp; Discussion ({activeTask.comments.length})
             </h4>
-            <span className="text-[10px] text-slate-400 font-mono">API Synced</span>
+            <span className="text-[10px] text-slate-400 font-mono">Live Thread</span>
           </div>
 
           <div className="space-y-2 mb-3">

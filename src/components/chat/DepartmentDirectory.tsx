@@ -134,7 +134,7 @@ export const DepartmentDirectory: React.FC<DepartmentDirectoryProps> = ({
     <div className="w-full space-y-2 select-none">
       <div className="flex items-center justify-between px-1 text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
         <span>Organizational Departments</span>
-        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">Live Sync</span>
+        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">Active</span>
       </div>
 
       {activeDepartments.map((deptId) => {

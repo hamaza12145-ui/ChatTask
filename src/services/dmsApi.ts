@@ -782,10 +782,11 @@ class DmsApiService {
     return dmsUsers.map((u: any): User => {
       const rawFullName =
         [u.first_name, u.last_name].filter(Boolean).join(' ').trim() ||
+        (u.name && u.name.trim()) ||
         (u.email ? u.email.split('@')[0] : `User #${u.id}`);
       const fullName = capitalizeWords(rawFullName);
 
-      const dept = (u.department || 'admin').toLowerCase() as Department;
+      const dept = (u.department_id || u.department || 'admin').toLowerCase() as Department;
 
       // Find reporting manager details from DMS users
       const managerUser = u.manager_id ? dmsUsers.find((m: any) => Number(m.id) === Number(u.manager_id)) : null;
@@ -919,7 +920,7 @@ class DmsApiService {
   /**
    * Convert ChatTask TaskPriority to DMS priority
    */
-  mapAppPriorityToDms(priority: TaskPriority): string {
+  mapAppPriorityToDms(priority: TaskPriority | string): string {
     switch (priority) {
       case 'urgent':
         return 'critical';
@@ -1106,26 +1107,45 @@ class DmsApiService {
   async createTask(data: {
     title: string;
     description?: string;
-    department: Department;
-    priority: TaskPriority;
+    department: Department | string;
+    priority: TaskPriority | string;
     dueDate: string;
+    startDate?: string;
     assigneeIds: string[];
     requiresApproval?: boolean;
     checklistTitles?: string[];
+    taskType?: string;
+    workflowType?: string;
+    projectName?: string;
+    recurrenceRule?: string;
+    recurrenceNextDate?: string;
+    recurrenceEndType?: string;
+    recurrenceEndDate?: string;
+    recurrenceEndOccurrences?: number;
+    approvalRequiredUserIds?: number[];
+    movChecklist?: Array<{ text: string; checked?: boolean; checked_by_id?: number | null; checked_at?: string | null }>;
+    movAssignments?: Array<{ mov_index: number; user_id: number | null }>;
+    assignedUsersMeta?: Array<{ user_id: number; department: string }>;
   }): Promise<Task> {
-    const assignedUsers = data.assigneeIds.map((id) => parseInt(id, 10)).filter((n) => !isNaN(n) && n > 0);
+    const assignedUsers = data.assigneeIds.map((id) => parseInt(String(id), 10)).filter((n) => !isNaN(n) && n > 0);
     const dmsPriority = this.mapAppPriorityToDms(data.priority);
     const dmsDept = data.department.toLowerCase();
 
-    // Format due_date to YYYY-MM-DD
+    // Format due_date and start_date to YYYY-MM-DD
     let dueDateFormatted = data.dueDate;
-    if (data.dueDate.includes('T')) {
+    if (data.dueDate && data.dueDate.includes('T')) {
       dueDateFormatted = data.dueDate.split('T')[0];
     }
+    let startDateFormatted = data.startDate;
+    if (data.startDate && data.startDate.includes('T')) {
+      startDateFormatted = data.startDate.split('T')[0];
+    }
 
-    const movChecklist = (data.checklistTitles || []).map((text) => ({
+    const movChecklist = data.movChecklist || (data.checklistTitles || []).map((text) => ({
       text,
       checked: false,
+      checked_by_id: null,
+      checked_at: null,
     }));
 
     const payload: any = {
@@ -1133,12 +1153,23 @@ class DmsApiService {
       description: data.description || '',
       department: dmsDept,
       priority: dmsPriority,
+      start_date: startDateFormatted || undefined,
       due_date: dueDateFormatted,
       assigned_users: assignedUsers.length > 0 ? assignedUsers : [1],
-      workflow_type: data.requiresApproval ? 'approval_required' : 'standard',
-      task_type: 'one_time',
+      assigned_users_meta: data.assignedUsersMeta,
+      workflow_type: data.workflowType || (data.requiresApproval ? 'approval_required' : 'standard'),
+      task_type: data.taskType || 'one_time',
+      project_name: data.projectName || undefined,
+      recurrence_rule: data.recurrenceRule || undefined,
+      recurrence_next_date: data.recurrenceNextDate || undefined,
+      recurrence_end_type: data.recurrenceEndType || undefined,
+      recurrence_end_date: data.recurrenceEndDate || undefined,
+      recurrence_end_occurrences: data.recurrenceEndOccurrences ? Number(data.recurrenceEndOccurrences) : undefined,
+      approval_required: data.workflowType === 'approval_required' || !!data.requiresApproval,
+      approval_required_user_ids: data.approvalRequiredUserIds,
       mov_checklist: movChecklist,
-      mov_items: data.checklistTitles || [],
+      mov_assignments: data.movAssignments,
+      mov_items: data.movChecklist ? data.movChecklist.map((m) => m.text) : (data.checklistTitles || []),
     };
 
     const res = await this.request<{ success?: boolean; data: any }>('/tasks', {
@@ -1153,6 +1184,29 @@ class DmsApiService {
     }
     this.broadcastMutation('tasks');
     return task;
+  }
+
+  /**
+   * Upload an attachment for a task
+   */
+  async uploadTaskAttachment(
+    taskId: string | number,
+    file: File,
+    name?: string,
+    isInitial = true
+  ): Promise<any> {
+    const id = parseInt(String(taskId), 10);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('is_initial', isInitial ? 'true' : 'false');
+    if (name) {
+      formData.append('description', name);
+      formData.append('name', name);
+    }
+    return this.request(`/tasks/${id}/attachments/upload`, {
+      method: 'POST',
+      body: formData,
+    });
   }
 
   /**

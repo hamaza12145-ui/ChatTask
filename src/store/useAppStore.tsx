@@ -77,9 +77,10 @@ interface AppStoreContextType {
   createTask: (data: {
     title: string;
     description: string;
-    department: Department;
-    priority: TaskPriority;
+    department: Department | string;
+    priority: TaskPriority | string;
     dueDate: string;
+    startDate?: string;
     assigneeIds: string[];
     checklistTitles: string[];
     requiresApproval: boolean;
@@ -87,6 +88,18 @@ interface AppStoreContextType {
     sourceChatId?: string;
     sourceMessageId?: string;
     attachments?: TaskAttachment[];
+    taskType?: string;
+    workflowType?: string;
+    projectName?: string;
+    recurrenceRule?: string;
+    recurrenceNextDate?: string;
+    recurrenceEndType?: string;
+    recurrenceEndDate?: string;
+    recurrenceEndOccurrences?: number;
+    approvalRequiredUserIds?: number[];
+    movChecklist?: Array<{ text: string; checked?: boolean; checked_by_id?: number | null; checked_at?: string | null }>;
+    movAssignments?: Array<{ mov_index: number; user_id: number | null }>;
+    assignedUsersMeta?: Array<{ user_id: number; department: string }>;
   }) => Promise<Task>;
   updateTaskStatus: (taskId: string, newStatus: TaskStatus) => Promise<void>;
   submitProof: (taskId: string, photoUrl: string, note: string) => void;
@@ -435,7 +448,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         }
       }
 
-      if (fetchedTasks.length > 0) {
+      if (fetchedTasks) {
         setTasks(fetchedTasks);
       }
 
@@ -469,9 +482,27 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         setActiveChatIdState(null);
       }
 
-      if (fetchedMessages.length > 0) {
+      if (fetchedMessages && fetchedMessages.length > 0) {
+        // Automatically synchronize delivery receipt for incoming messages from others
+        if (currentUserId) {
+          const undeliveredChatIds = new Set<string>();
+          for (const m of fetchedMessages) {
+            if (
+              String(m.senderId) !== String(currentUserId) &&
+              (!m.deliveredTo || !m.deliveredTo[currentUserId])
+            ) {
+              undeliveredChatIds.add(m.chatId);
+            }
+          }
+          undeliveredChatIds.forEach((cid) => {
+            dmsApi.markConversationDelivered(cid, currentUserId).catch(() => {});
+          });
+        }
+
         const decryptedMessages = await e2eeCrypto.decryptMessages(fetchedMessages);
         setMessages(decryptedMessages);
+      } else {
+        setMessages([]);
       }
 
       if (fetchedNotifications && fetchedNotifications.length > 0) {
@@ -548,6 +579,22 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
       // 4. Dynamic Messages update (Real-time live messaging without reload)
       if (delta.changed.messages && delta.messages) {
+        // If incoming messages from other participants arrived, mark delivered
+        if (currentUserId) {
+          const undeliveredChatIds = new Set<string>();
+          for (const m of delta.messages) {
+            if (
+              String(m.senderId) !== String(currentUserId) &&
+              (!m.deliveredTo || !m.deliveredTo[currentUserId])
+            ) {
+              undeliveredChatIds.add(m.chatId);
+            }
+          }
+          undeliveredChatIds.forEach((cid) => {
+            dmsApi.markConversationDelivered(cid, currentUserId).catch(() => {});
+          });
+        }
+
         // If the user is currently viewing activeChatId, mark incoming messages as read
         if (activeChatId && currentUserId) {
           const hasUnreadIncoming = delta.messages.some(
@@ -975,9 +1022,10 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     async (data: {
       title: string;
       description: string;
-      department: Department;
-      priority: TaskPriority;
+      department: Department | string;
+      priority: TaskPriority | string;
       dueDate: string;
+      startDate?: string;
       assigneeIds: string[];
       checklistTitles: string[];
       requiresApproval: boolean;
@@ -985,6 +1033,18 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       sourceChatId?: string;
       sourceMessageId?: string;
       attachments?: TaskAttachment[];
+      taskType?: string;
+      workflowType?: string;
+      projectName?: string;
+      recurrenceRule?: string;
+      recurrenceNextDate?: string;
+      recurrenceEndType?: string;
+      recurrenceEndDate?: string;
+      recurrenceEndOccurrences?: number;
+      approvalRequiredUserIds?: number[];
+      movChecklist?: Array<{ text: string; checked?: boolean; checked_by_id?: number | null; checked_at?: string | null }>;
+      movAssignments?: Array<{ mov_index: number; user_id: number | null }>;
+      assignedUsersMeta?: Array<{ user_id: number; department: string }>;
     }): Promise<Task> => {
       const now = new Date().toISOString();
 
@@ -995,10 +1055,23 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           description: data.description,
           department: data.department,
           priority: data.priority,
+          startDate: data.startDate,
           dueDate: data.dueDate,
           assigneeIds: data.assigneeIds.length > 0 ? data.assigneeIds : [currentUser.id],
           requiresApproval: data.requiresApproval,
           checklistTitles: data.checklistTitles,
+          taskType: data.taskType,
+          workflowType: data.workflowType,
+          projectName: data.projectName,
+          recurrenceRule: data.recurrenceRule,
+          recurrenceNextDate: data.recurrenceNextDate,
+          recurrenceEndType: data.recurrenceEndType,
+          recurrenceEndDate: data.recurrenceEndDate,
+          recurrenceEndOccurrences: data.recurrenceEndOccurrences,
+          approvalRequiredUserIds: data.approvalRequiredUserIds,
+          movChecklist: data.movChecklist,
+          movAssignments: data.movAssignments,
+          assignedUsersMeta: data.assignedUsersMeta,
         });
 
         // Attach local client metadata (sourceChatId, sourceMessageId)

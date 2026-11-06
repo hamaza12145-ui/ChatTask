@@ -169,7 +169,7 @@ export const ChatList: React.FC = () => {
             MTJF Communications
           </h2>
           <p className="text-[11px] text-slate-500 dark:text-slate-400">
-            Team Messenger &amp; Tasking Sync
+            Team Messenger &amp; Tasks
           </p>
         </div>
         <button
@@ -319,26 +319,42 @@ export const ChatList: React.FC = () => {
                           </span>
                         ) : (
                           <>
-                            {chat.lastMessage && String(chat.lastMessage.senderId) === String(currentUser.id) && (
-                              <span
-                                className="inline-flex shrink-0 mr-1"
-                                title={
-                                  chat.lastMessage.status === 'read'
-                                    ? 'Read'
-                                    : chat.lastMessage.status === 'delivered'
-                                    ? 'Delivered'
-                                    : 'Sent'
-                                }
-                              >
-                                {chat.lastMessage.status === 'read' ? (
-                                  <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
-                                ) : chat.lastMessage.status === 'delivered' ? (
-                                  <CheckCheck className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
-                                ) : (
-                                  <Check className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
-                                )}
-                              </span>
-                            )}
+                            {chat.lastMessage && String(chat.lastMessage.senderId) === String(currentUser.id) && (() => {
+                              const isRead =
+                                chat.lastMessage.status === 'read' ||
+                                Boolean(
+                                  chat.lastMessage.readBy &&
+                                  Object.keys(chat.lastMessage.readBy).some((uid) => String(uid) !== String(currentUser.id))
+                                );
+                              const isDelivered =
+                                isRead ||
+                                chat.lastMessage.status === 'delivered' ||
+                                Boolean(
+                                  chat.lastMessage.deliveredTo &&
+                                  Object.keys(chat.lastMessage.deliveredTo).some((uid) => String(uid) !== String(currentUser.id))
+                                );
+
+                              return (
+                                <span
+                                  className="inline-flex shrink-0 mr-1"
+                                  title={
+                                    isRead
+                                      ? 'Read'
+                                      : isDelivered
+                                      ? 'Delivered'
+                                      : 'Sent'
+                                  }
+                                >
+                                  {isRead ? (
+                                    <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
+                                  ) : isDelivered ? (
+                                    <CheckCheck className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+                                  ) : (
+                                    <Check className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+                                  )}
+                                </span>
+                              );
+                            })()}
                             <span className="truncate">
                               {chat.lastMessage?.text || 'No messages yet'}
                             </span>

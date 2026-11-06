@@ -155,10 +155,10 @@ export const ProfileView: React.FC = () => {
               onClick={() => refreshDmsData()}
               disabled={isLoadingDms}
               className="text-xs text-slate-400 hover:text-emerald-600 flex items-center gap-1 cursor-pointer font-medium"
-              title="Resync profile from ERP API"
+              title="Refresh profile from ERP API"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoadingDms ? 'animate-spin text-emerald-600' : ''}`} />
-              <span>{isLoadingDms ? 'Syncing...' : 'Sync Profile'}</span>
+              <span>{isLoadingDms ? 'Refreshing...' : 'Refresh Profile'}</span>
             </button>
           </div>
 
@@ -193,7 +193,7 @@ export const ProfileView: React.FC = () => {
             </div>
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Connected &amp; Synced
+              Connected &amp; Active
             </span>
           </div>
 

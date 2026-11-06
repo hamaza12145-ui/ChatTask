@@ -134,7 +134,7 @@ export const LoginView: React.FC = () => {
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-600 dark:bg-emerald-500 text-white shadow-lg shadow-emerald-500/25 ring-4 ring-emerald-500/15 mb-1">
             <ShieldCheck className="w-8 h-8" />
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-slate-50">
+          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-50">
             MTJF Internal Communication
           </h1>
         </div>
@@ -242,60 +242,7 @@ export const LoginView: React.FC = () => {
               )}
             </button>
           </form>
-
-          {/* Quick Select Section */}
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-            <button
-              type="button"
-              onClick={() => setShowQuickSelect(!showQuickSelect)}
-              className="w-full flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer py-1"
-            >
-              <span className="flex items-center gap-1.5">
-                <Building2 className="w-3.5 h-3.5" />
-                <span>Quick Select Registered ERP Account</span>
-              </span>
-              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-normal">
-                {showQuickSelect ? 'Hide' : 'Show Accounts'}
-              </span>
-            </button>
-
-            {showQuickSelect && (
-              <div className="grid grid-cols-2 gap-2 mt-2.5 animate-in fade-in duration-200">
-                {QUICK_ACCOUNTS.map((acc) => {
-                  const isActive = email === acc.email;
-                  return (
-                    <button
-                      key={acc.email}
-                      type="button"
-                      onClick={() => handleSelectQuickAccount(acc)}
-                      className={`p-2 rounded-xl border text-left transition-all cursor-pointer flex items-center gap-2 ${
-                        isActive
-                          ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 ring-1 ring-emerald-500/20'
-                          : 'border-slate-200 dark:border-slate-700/80 bg-slate-50/50 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
-                      }`}
-                    >
-                      <div
-                        className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold text-white shrink-0 ${acc.badgeBg}`}
-                      >
-                        {acc.name.charAt(0)}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[11px] font-bold truncate leading-tight flex items-center justify-between">
-                          <span>{acc.name}</span>
-                          {isActive && <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />}
-                        </p>
-                        <p className="text-[9px] text-slate-400 dark:text-slate-500 truncate leading-tight">
-                          {acc.department}
-                        </p>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
         </div>
-
         {/* Security Footer */}
         <div className="text-center space-y-1">
           <p className="text-[11px] text-slate-400 dark:text-slate-500 flex items-center justify-center gap-1.5">

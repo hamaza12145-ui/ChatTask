@@ -183,10 +183,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         ? activeChat.participantIds.filter((id) => id !== currentUser.id).slice(0, 2)
         : [currentUser.id],
       attachments: message.attachment ? [message.attachment] : [],
-      checklist: [
-        { id: '1', title: 'Review requirements and setup', completed: false },
-        { id: '2', title: 'Execute deliverable and verify', completed: false },
-      ],
       requiresApproval: true,
       proofRequired: false,
     });
@@ -421,26 +417,42 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 </span>
               )}
               <span>{formatTime(message.timestamp)}</span>
-              {isOwn && (
-                <span
-                  className="inline-flex"
-                  title={
-                    message.status === 'read'
-                      ? 'Read'
-                      : message.status === 'delivered'
-                      ? 'Delivered'
-                      : 'Sent'
-                  }
-                >
-                  {message.status === 'read' ? (
-                    <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
-                  ) : message.status === 'delivered' ? (
-                    <CheckCheck className="w-3.5 h-3.5 opacity-70" />
-                  ) : (
-                    <Check className="w-3.5 h-3.5 opacity-70" />
-                  )}
-                </span>
-              )}
+              {isOwn && (() => {
+                const isRead =
+                  message.status === 'read' ||
+                  Boolean(
+                    message.readBy &&
+                    Object.keys(message.readBy).some((uid) => String(uid) !== String(message.senderId))
+                  );
+                const isDelivered =
+                  isRead ||
+                  message.status === 'delivered' ||
+                  Boolean(
+                    message.deliveredTo &&
+                    Object.keys(message.deliveredTo).some((uid) => String(uid) !== String(message.senderId))
+                  );
+
+                return (
+                  <span
+                    className="inline-flex"
+                    title={
+                      isRead
+                        ? 'Read'
+                        : isDelivered
+                        ? 'Delivered'
+                        : 'Sent'
+                    }
+                  >
+                    {isRead ? (
+                      <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
+                    ) : isDelivered ? (
+                      <CheckCheck className="w-3.5 h-3.5 opacity-70" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5 opacity-70" />
+                    )}
+                  </span>
+                );
+              })()}
             </div>
           </div>
 

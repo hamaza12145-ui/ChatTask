@@ -178,6 +178,8 @@ export interface Chat {
     senderId: string;
     type?: MessageType;
     status?: 'sent' | 'delivered' | 'read';
+    readBy?: Record<string, string>;
+    deliveredTo?: Record<string, string>;
   };
   unreadCounts: Record<string, number>; // userId -> count
   description?: string;

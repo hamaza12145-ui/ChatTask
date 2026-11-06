@@ -106,7 +106,7 @@ export const TasksBoard: React.FC = () => {
                 onClick={() => refreshDmsData()}
                 disabled={isLoadingDms}
                 className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-600 transition-colors cursor-pointer"
-                title="Sync Tasks"
+                title="Refresh Tasks"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isLoadingDms ? 'animate-spin text-emerald-600' : ''}`} />
               </button>

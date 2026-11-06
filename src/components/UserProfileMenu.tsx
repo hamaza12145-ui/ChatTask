@@ -164,17 +164,6 @@ export const UserProfileMenu: React.FC = () => {
                 </div>
               )}
             </div>
-
-            {/* ERP-Task Core Sync Status Badge */}
-            <div className="flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500 pt-0.5">
-              <span className="flex items-center gap-1">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>ERP Authenticated</span>
-              </span>
-              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                JWT Session Active
-              </span>
-            </div>
           </div>
 
           {/* Quick Menu Options */}
@@ -198,10 +187,10 @@ export const UserProfileMenu: React.FC = () => {
             >
               <span className="flex items-center gap-2.5">
                 <RefreshCw className={`w-4 h-4 text-slate-400 ${isLoadingDms ? 'animate-spin text-emerald-600' : ''}`} />
-                <span>Sync Latest ERP Data</span>
+                <span>Refresh</span>
               </span>
               {isLoadingDms && (
-                <span className="text-[10px] text-emerald-600 font-semibold">Syncing...</span>
+                <span className="text-[10px] text-emerald-600 font-semibold">Refreshing...</span>
               )}
             </button>
 
