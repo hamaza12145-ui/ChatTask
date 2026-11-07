@@ -812,27 +812,17 @@ class DmsApiService {
   async fetchDepartments(): Promise<DepartmentMeta[]> {
     const deptSet = new Set<string>();
 
-    // 1. Query ERP-Task backend users module department validation to get backend's configured Department list
+    // 1. Query ERP-Task backend /chat/departments endpoint (configured from src/utils/admin/index.js)
     try {
-      const token = this.getToken();
-      const res = await fetch(`${DMS_BASE_URL}/users/department/_list`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        const msg = body?.message || '';
-        // Pattern: "Invalid department. Must be one of: store, procurements, program, ..."
-        const match = msg.match(/Must be one of:\s*(.+)$/i);
-        if (match && match[1]) {
-          match[1]
-            .split(',')
-            .map((s: string) => s.trim().toLowerCase())
-            .filter(Boolean)
-            .forEach((d: string) => deptSet.add(d));
-        }
+      const res = await this.request<{ success?: boolean; data?: string[] }>('/chat/departments');
+      if (res && Array.isArray(res.data) && res.data.length > 0) {
+        res.data
+          .map((s: string) => s.trim().toLowerCase())
+          .filter(Boolean)
+          .forEach((d: string) => deptSet.add(d));
       }
     } catch (e: any) {
-      console.warn('Could not query department validation from ERP-Task:', e?.message);
+      console.warn('Could not query departments from /chat/departments:', e?.message);
     }
 
     // 2. Also inspect departments from active ERP users
