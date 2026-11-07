@@ -449,7 +449,7 @@ class DmsApiService {
    * Start dynamic real-time live synchronization.
    * Returns an unsubscribe function to stop syncing.
    */
-  public startLiveSync(listener?: DmsSyncListener, intervalMs: number = 2500): () => void {
+  public startLiveSync(listener?: DmsSyncListener, intervalMs: number = 10000): () => void {
     if (listener) {
       this.syncListeners.add(listener);
     }
@@ -467,30 +467,29 @@ class DmsApiService {
     // Trigger initial sync immediately
     this.triggerSync('all').catch(() => {});
 
-    // Schedule periodic adaptive polling
+    // Adaptive periodic reconciliation (real-time chat messaging is powered by WebSocket)
     this.syncTimer = setInterval(() => {
       if (!this.isLiveSyncActive) return;
 
       // Throttle when page is hidden / backgrounded
       if (typeof document !== 'undefined' && document.hidden) {
         this.tickCount++;
-        // Run only every 6 ticks (15s) when tab is hidden
-        if (this.tickCount % 6 !== 0) return;
+        if (this.tickCount % 4 !== 0) return;
       }
 
       this.tickCount++;
-      const isEvery2Ticks = this.tickCount % 2 === 0; // ~5s
-      const isEvery4Ticks = this.tickCount % 4 === 0; // ~10s
+      const isEvery4Ticks = this.tickCount % 4 === 0; // ~40s (users & depts)
+      const isEvery2Ticks = this.tickCount % 2 === 0; // ~20s (tasks & notifs)
 
       if (isEvery4Ticks) {
         // Users & Directory check
         this.triggerSync('all').catch(() => {});
       } else if (isEvery2Ticks) {
-        // Tasks & Notifications check + messages
-        this.triggerSync('tasks').then(() => this.triggerSync('messages')).catch(() => {});
+        // Tasks check
+        this.triggerSync('tasks').catch(() => {});
       } else {
-        // High priority: real-time Messages & Conversations
-        this.triggerSync('messages').catch(() => {});
+        // Notifications check
+        this.triggerSync('notifications').catch(() => {});
       }
     }, intervalMs);
 
@@ -590,7 +589,11 @@ class DmsApiService {
           : Promise.resolve(null),
         shouldFetchTasks ? this.fetchTasks().catch(() => null) : Promise.resolve(null),
         shouldFetchConvs ? this.fetchConversations(this.currentUserId).catch(() => null) : Promise.resolve(null),
-        shouldFetchMessages ? this.fetchMessages(undefined, 2000, this.currentUserId).catch(() => null) : Promise.resolve(null),
+        shouldFetchMessages
+          ? (this.activeChatId
+              ? this.fetchMessages(this.activeChatId, 50, this.currentUserId).catch(() => null)
+              : Promise.resolve(null))
+          : Promise.resolve(null),
         shouldFetchNotifs ? this.fetchNotifications(this.currentUserId).catch(() => null) : Promise.resolve(null),
       ];
 
@@ -1554,12 +1557,20 @@ class DmsApiService {
   /**
    * Fetch persistent chat messages from ERP-Task backend
    */
-  async fetchMessages(chatId?: string, limit: number = 2000, userId?: string): Promise<ChatMessage[]> {
+  async fetchMessages(
+    chatId?: string,
+    limit: number = 50,
+    userId?: string,
+    before?: string
+  ): Promise<ChatMessage[]> {
     try {
       const activeUid = userId || this.currentUserId;
       let endpoint = chatId ? `/chat/messages/${chatId}?limit=${limit}` : `/chat/messages?limit=${limit}`;
       if (!chatId && activeUid) {
         endpoint += `&userId=${activeUid}`;
+      }
+      if (before) {
+        endpoint += `${endpoint.includes('?') ? '&' : '?'}before=${encodeURIComponent(before)}`;
       }
       const res = await this.request<{ success?: boolean; data: any[] }>(endpoint);
       const msgs = res.data || [];

@@ -37,6 +37,10 @@ export const ChatWindow: React.FC = () => {
     tasks,
     typingStatus,
     deviceView,
+    hasMoreOlderMessages,
+    isLoadingOlderMessages,
+    loadOlderMessages,
+    sendTypingIndicator,
   } = useAppStore();
 
   const [inputText, setInputText] = useState('');
@@ -52,6 +56,7 @@ export const ChatWindow: React.FC = () => {
   const attachmentMenuRef = useRef<HTMLDivElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Linked task and tasks associated with this chat
   const linkedTask = activeChat?.linkedTaskId ? tasks.find((t) => t.id === activeChat.linkedTaskId) : null;
@@ -125,6 +130,15 @@ export const ChatWindow: React.FC = () => {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setInputText(value);
+
+    // Emit real-time typing indicator over WebSocket
+    if (activeChat) {
+      sendTypingIndicator(activeChat.id, value.trim().length > 0);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        if (activeChat) sendTypingIndicator(activeChat.id, false);
+      }, 2500);
+    }
 
     // Check if cursor is right after an '@'
     const lastAtPos = value.lastIndexOf('@');
@@ -234,6 +248,11 @@ export const ChatWindow: React.FC = () => {
 
   const handleSendMessage = () => {
     if ((!inputText.trim() && !pendingAttachment) || !activeChat) return;
+
+    if (activeChat) {
+      sendTypingIndicator(activeChat.id, false);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    }
 
     let fullText = inputText.trim();
     if (taskQuoteForComposer) {
@@ -409,6 +428,26 @@ export const ChatWindow: React.FC = () => {
             </span>
           </div>
         </div>
+
+        {/* Pagination: Load older message history */}
+        {activeChat && hasMoreOlderMessages[activeChat.id] !== false && chatMessages.length >= 20 && (
+          <div className="flex justify-center my-2">
+            <button
+              onClick={() => loadOlderMessages(activeChat.id)}
+              disabled={isLoadingOlderMessages}
+              className="text-xs px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              {isLoadingOlderMessages ? (
+                <>
+                  <span className="w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                  <span>Loading older messages...</span>
+                </>
+              ) : (
+                <span>Load older messages</span>
+              )}
+            </button>
+          </div>
+        )}
         {chatMessages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400 text-xs">
             <p>No messages yet in this conversation.</p>

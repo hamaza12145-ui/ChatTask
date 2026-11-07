@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import {
   User,
   Chat,
@@ -16,6 +16,7 @@ import {
 // SEED data completely removed - ERP-Task APIs and PostgreSQL database are the single source of truth.
 import { dmsApi, getDepartmentMeta, DepartmentMeta } from '../services/dmsApi';
 import { e2eeCrypto } from '../services/e2eeCrypto';
+import { chatSocket } from '../services/chatSocket';
 
 interface Toast {
   id: string;
@@ -48,6 +49,11 @@ interface AppStoreContextType {
   // Messages
   messages: ChatMessage[];
   chatMessages: ChatMessage[];
+  messagesByChatId: Record<string, ChatMessage[]>;
+  hasMoreOlderMessages: Record<string, boolean>;
+  isLoadingOlderMessages: boolean;
+  loadOlderMessages: (chatId: string) => Promise<void>;
+  sendTypingIndicator: (chatId: string, isTyping: boolean) => void;
   sendMessage: (
     chatId: string,
     text: string,
@@ -270,51 +276,168 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     return null;
   });
 
-  const setActiveChatId = useCallback((chatId: string | null) => {
-    setActiveChatIdState(chatId);
-    dmsApi.setActiveChatId(chatId);
-    if (typeof window !== 'undefined') {
-      if (chatId) {
-        localStorage.setItem('dmstask_persisted_active_chat_id', chatId);
-      } else {
-        localStorage.removeItem('dmstask_persisted_active_chat_id');
+  const setActiveChatId = useCallback(
+    (chatId: string | null) => {
+      setActiveChatIdState((prevChatId) => {
+        if (prevChatId && prevChatId !== chatId) {
+          chatSocket.leaveConversation(prevChatId);
+        }
+        return chatId;
+      });
+      dmsApi.setActiveChatId(chatId);
+      if (typeof window !== 'undefined') {
+        if (chatId) {
+          localStorage.setItem('dmstask_persisted_active_chat_id', chatId);
+        } else {
+          localStorage.removeItem('dmstask_persisted_active_chat_id');
+        }
       }
-    }
-    if (chatId && currentUserId) {
-      // Clear unread count for current user in local state immediately
-      setChats((prev) =>
-        prev.map((c) =>
-          c.id === chatId
-            ? {
-                ...c,
-                unreadCounts: {
-                  ...(c.unreadCounts || {}),
-                  [currentUserId]: 0,
-                },
+      if (chatId) {
+        chatSocket.joinConversation(chatId);
+
+        // Fetch initial messages for active chat if empty
+        setMessagesByChatId((currentMap) => {
+          if (!currentMap[chatId] || currentMap[chatId].length === 0) {
+            dmsApi.fetchMessages(chatId, 50, currentUserId).then(async (fetched) => {
+              if (fetched && fetched.length > 0) {
+                const decrypted = await e2eeCrypto.decryptMessages(fetched);
+                setMessagesByChatId((prev) => ({
+                  ...prev,
+                  [chatId]: decrypted,
+                }));
+                setHasMoreOlderMessages((prev) => ({
+                  ...prev,
+                  [chatId]: fetched.length >= 50,
+                }));
               }
-            : c
-        )
-      );
-      // Synchronize read receipt with backend
-      dmsApi.markConversationRead(chatId, currentUserId).catch(() => {});
-    }
-  }, [currentUserId]);
+            }).catch(() => {});
+          }
+          return currentMap;
+        });
+
+        if (currentUserId) {
+          // Clear unread count for current user in local state immediately
+          setChats((prev) =>
+            prev.map((c) =>
+              c.id === chatId
+                ? {
+                    ...c,
+                    unreadCounts: {
+                      ...(c.unreadCounts || {}),
+                      [currentUserId]: 0,
+                    },
+                  }
+                : c
+            )
+          );
+          // Synchronize read receipt with backend
+          dmsApi.markConversationRead(chatId, currentUserId).catch(() => {});
+        }
+      }
+    },
+    [currentUserId]
+  );
 
   const activeChat = chats.find((c) => c.id === activeChatId) || (chats.length > 0 ? chats[0] : null);
 
-  // Messages state - Persistent from ERP-Task database + local storage cache
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+  // Messages state - Per-chat indexed store for fast retrieval and memory efficiency
+  const [messagesByChatId, setMessagesByChatId] = useState<Record<string, ChatMessage[]>>(() => {
     if (typeof window !== 'undefined') {
-      const cached = localStorage.getItem('dmstask_persisted_messages');
+      const cached = localStorage.getItem('dmstask_persisted_messages_by_chat');
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          if (parsed && typeof parsed === 'object') return parsed;
+        } catch {}
+      }
+      // Migrate legacy flat messages array if present
+      const legacy = localStorage.getItem('dmstask_persisted_messages');
+      if (legacy) {
+        try {
+          const parsed = JSON.parse(legacy);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const map: Record<string, ChatMessage[]> = {};
+            for (const m of parsed) {
+              if (!map[m.chatId]) map[m.chatId] = [];
+              map[m.chatId].push(m);
+            }
+            return map;
+          }
         } catch {}
       }
     }
-    return [];
+    return {};
   });
+
+  const [hasMoreOlderMessages, setHasMoreOlderMessages] = useState<Record<string, boolean>>({});
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState<boolean>(false);
+
+  // Backward compatibility: chatMessages for currently active chat
+  const chatMessages = useMemo(() => {
+    return activeChatId ? (messagesByChatId[activeChatId] || []) : [];
+  }, [activeChatId, messagesByChatId]);
+
+  // Backward compatibility: flat messages array across all loaded chats
+  const messages = useMemo(() => {
+    return Object.values(messagesByChatId).flat();
+  }, [messagesByChatId]);
+
+  // Backward compatibility: setMessages adapter that preserves per-chat grouping
+  const setMessages = useCallback(
+    (updater: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      setMessagesByChatId((prevMap) => {
+        const currentFlat = Object.values(prevMap).flat();
+        const updatedList = typeof updater === 'function' ? updater(currentFlat) : updater;
+        const newMap: Record<string, ChatMessage[]> = {};
+        for (const m of updatedList) {
+          if (!newMap[m.chatId]) newMap[m.chatId] = [];
+          newMap[m.chatId].push(m);
+        }
+        return newMap;
+      });
+    },
+    []
+  );
+
+  // Pagination: Load older message history for active conversation
+  const loadOlderMessages = useCallback(
+    async (chatId: string) => {
+      if (!chatId || isLoadingOlderMessages) return;
+      const currentList = messagesByChatId[chatId] || [];
+      if (currentList.length === 0) return;
+
+      const oldestMessage = currentList[0];
+      const oldestTimestamp = oldestMessage?.timestamp;
+      if (!oldestTimestamp) return;
+
+      setIsLoadingOlderMessages(true);
+      try {
+        const older = await dmsApi.fetchMessages(chatId, 30, currentUserId, oldestTimestamp);
+        if (!older || older.length === 0) {
+          setHasMoreOlderMessages((prev) => ({ ...prev, [chatId]: false }));
+        } else {
+          const decrypted = await e2eeCrypto.decryptMessages(older);
+          setMessagesByChatId((prev) => {
+            const existing = prev[chatId] || [];
+            const existingIds = new Set(existing.map((m) => m.id));
+            const newUnique = decrypted.filter((m) => !existingIds.has(m.id));
+            return {
+              ...prev,
+              [chatId]: [...newUnique, ...existing],
+            };
+          });
+          if (older.length < 30) {
+            setHasMoreOlderMessages((prev) => ({ ...prev, [chatId]: false }));
+          }
+        }
+      } catch (err: any) {
+        console.warn('Failed to load older messages:', err?.message);
+      } finally {
+        setIsLoadingOlderMessages(false);
+      }
+    },
+    [messagesByChatId, isLoadingOlderMessages, currentUserId]
+  );
 
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [replyMessage, setReplyMessage] = useState<QuotedMessage | null>(null);
@@ -322,6 +445,13 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   // Typing simulator state
   const [typingStatus, setTypingStatus] = useState<Record<string, string>>({});
+
+  const sendTypingIndicator = useCallback(
+    (chatId: string, isTyping: boolean) => {
+      chatSocket.sendTyping(chatId, isTyping, currentUserId);
+    },
+    [currentUserId]
+  );
 
   // Modals state
   const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
@@ -358,10 +488,10 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, [chats]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && messages.length > 0) {
-      localStorage.setItem('dmstask_persisted_messages', JSON.stringify(messages));
+    if (typeof window !== 'undefined' && Object.keys(messagesByChatId).length > 0) {
+      localStorage.setItem('dmstask_persisted_messages_by_chat', JSON.stringify(messagesByChatId));
     }
-  }, [messages]);
+  }, [messagesByChatId]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -390,8 +520,6 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Filter messages for active chat
-  const chatMessages = messages.filter((m) => m.chatId === activeChatId);
 
   // Notifications filtered for current user
   const userNotifications = notifications.filter((n) => n.recipientId === currentUserId);
@@ -441,13 +569,13 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         }
       }
 
-      // Fetch Departments, Users, Tasks, Conversations, Messages, and Notifications concurrently from ERP-Task backend
+      // Fetch Departments, Users, Tasks, Conversations, Active Chat Messages, and Notifications concurrently from ERP-Task backend
       const [fetchedDepts, fetchedUsers, fetchedTasks, fetchedConversations, fetchedMessages, fetchedNotifications] = await Promise.all([
         dmsApi.fetchDepartments().catch(() => []),
         dmsApi.fetchUsers(),
         dmsApi.fetchTasks(),
         dmsApi.fetchConversations(currentUserId),
-        dmsApi.fetchMessages(undefined, 2000, currentUserId),
+        activeChatId ? dmsApi.fetchMessages(activeChatId, 50, currentUserId).catch(() => []) : Promise.resolve([]),
         dmsApi.fetchNotifications(currentUserId),
       ]);
 
@@ -505,27 +633,25 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         setActiveChatIdState(null);
       }
 
-      if (fetchedMessages && fetchedMessages.length > 0) {
-        // Automatically synchronize delivery receipt for incoming messages from others
+      if (fetchedMessages && fetchedMessages.length > 0 && activeChatId) {
         if (currentUserId) {
-          const undeliveredChatIds = new Set<string>();
-          for (const m of fetchedMessages) {
-            if (
-              String(m.senderId) !== String(currentUserId) &&
-              (!m.deliveredTo || !m.deliveredTo[currentUserId])
-            ) {
-              undeliveredChatIds.add(m.chatId);
-            }
+          const hasUndelivered = fetchedMessages.some(
+            (m) => String(m.senderId) !== String(currentUserId) && (!m.deliveredTo || !m.deliveredTo[currentUserId])
+          );
+          if (hasUndelivered) {
+            dmsApi.markConversationDelivered(activeChatId, currentUserId).catch(() => {});
           }
-          undeliveredChatIds.forEach((cid) => {
-            dmsApi.markConversationDelivered(cid, currentUserId).catch(() => {});
-          });
         }
 
         const decryptedMessages = await e2eeCrypto.decryptMessages(fetchedMessages);
-        setMessages(decryptedMessages);
-      } else {
-        setMessages([]);
+        setMessagesByChatId((prev) => ({
+          ...prev,
+          [activeChatId]: decryptedMessages,
+        }));
+        setHasMoreOlderMessages((prev) => ({
+          ...prev,
+          [activeChatId]: fetchedMessages.length >= 50,
+        }));
       }
 
       if (fetchedNotifications && fetchedNotifications.length > 0) {
@@ -632,16 +758,19 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         }
 
         e2eeCrypto.decryptMessages(delta.messages).then((decryptedDelta) => {
-          setMessages((prev) => {
-            // Reconcile server messages with any optimistic local messages
-            const serverMsgIds = new Set(decryptedDelta.map((m) => m.id));
-            const pendingLocalMsgs = prev.filter(
-              (m) => m.id.startsWith('msg_') && !serverMsgIds.has(m.id)
-            );
-            if (pendingLocalMsgs.length === 0) {
-              return decryptedDelta;
+          setMessagesByChatId((prev) => {
+            const next = { ...prev };
+            for (const dm of decryptedDelta) {
+              const list = next[dm.chatId] ? [...next[dm.chatId]] : [];
+              const idx = list.findIndex((m) => m.id === dm.id);
+              if (idx >= 0) {
+                list[idx] = dm;
+              } else {
+                list.push(dm);
+              }
+              next[dm.chatId] = list;
             }
-            return [...decryptedDelta, ...pendingLocalMsgs];
+            return next;
           });
         }).catch((err) => {
           console.warn('Delta message decryption error:', err);
@@ -652,12 +781,205 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       if (delta.changed.notifications && delta.notifications) {
         setNotifications(delta.notifications);
       }
-    }, 2500);
+    }, 10000);
 
     return () => {
       unsubscribe();
     };
   }, [refreshDmsData, currentUserId, activeChatId]);
+
+  // Real-Time WebSocket Communication (Instant Messages, Delivery/Read Receipts, Typing, Online Presence)
+  useEffect(() => {
+    if (!isAuthenticated || !currentUserId) return;
+
+    chatSocket.connect(dmsApi.getToken(), currentUserId);
+
+    if (activeChatId) {
+      chatSocket.joinConversation(activeChatId);
+    }
+
+    const unsubs: Array<() => void> = [];
+
+    // 1. New Message received in real-time
+    unsubs.push(
+      chatSocket.on('new_message', async (rawMsg: any) => {
+        if (!rawMsg || !rawMsg.chatId) return;
+        const msgChatId = rawMsg.chatId;
+
+        // Decrypt incoming message
+        const [decryptedMsg] = await e2eeCrypto.decryptMessages([rawMsg]);
+        if (!decryptedMsg) return;
+
+        // Append to messagesByChatId
+        setMessagesByChatId((prev) => {
+          const list = prev[msgChatId] || [];
+          if (list.some((m) => m.id === decryptedMsg.id)) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [msgChatId]: [...list, decryptedMsg],
+          };
+        });
+
+        // Update conversation lastMessage & unreadCounts
+        setChats((prev) =>
+          prev.map((c) => {
+            if (c.id === msgChatId) {
+              const currentUnread = c.unreadCounts || {};
+              const isOtherSender = String(decryptedMsg.senderId) !== String(currentUserId);
+              const isCurrentChat = activeChatId === msgChatId;
+              const newUnread = {
+                ...currentUnread,
+                [currentUserId]: isOtherSender && !isCurrentChat
+                  ? (currentUnread[currentUserId] || 0) + 1
+                  : 0,
+              };
+              return {
+                ...c,
+                lastMessage: {
+                  text: decryptedMsg.text || 'New message',
+                  timestamp: decryptedMsg.timestamp,
+                  senderId: decryptedMsg.senderId,
+                  type: decryptedMsg.type,
+                  status: decryptedMsg.status,
+                },
+                unreadCounts: newUnread,
+              };
+            }
+            return c;
+          })
+        );
+
+        // Auto receipts
+        if (String(decryptedMsg.senderId) !== String(currentUserId)) {
+          if (activeChatId === msgChatId) {
+            dmsApi.markConversationRead(msgChatId, currentUserId).catch(() => {});
+          } else {
+            dmsApi.markConversationDelivered(msgChatId, currentUserId).catch(() => {});
+          }
+        }
+      })
+    );
+
+    // 2. Receipt Updates (delivered / read)
+    unsubs.push(
+      chatSocket.on('receipt_update', (payload: any) => {
+        if (!payload) return;
+        const { messageId, status, userId, timestamp } = payload;
+
+        setMessagesByChatId((prev) => {
+          let hasChange = false;
+          const nextMap = { ...prev };
+          for (const cid of Object.keys(nextMap)) {
+            const list = nextMap[cid];
+            let listChanged = false;
+            const updatedList = list.map((m) => {
+              if (messageId && m.id !== messageId) return m;
+              if (status === 'read') {
+                const readBy = { ...(m.readBy || {}), [userId]: timestamp };
+                const deliveredTo = { ...(m.deliveredTo || {}), [userId]: timestamp };
+                listChanged = true;
+                return { ...m, status: 'read', deliveryStatus: 'read', readBy, deliveredTo };
+              } else if (status === 'delivered') {
+                const deliveredTo = { ...(m.deliveredTo || {}), [userId]: timestamp };
+                listChanged = true;
+                return { ...m, status: m.status === 'read' ? 'read' : 'delivered', deliveryStatus: 'delivered', deliveredTo };
+              }
+              return m;
+            });
+            if (listChanged) {
+              nextMap[cid] = updatedList;
+              hasChange = true;
+            }
+          }
+          return hasChange ? nextMap : prev;
+        });
+
+        // Update chats last message status
+        setChats((prev) =>
+          prev.map((c) => {
+            if (c.lastMessage && (status === 'read' || status === 'delivered')) {
+              return {
+                ...c,
+                lastMessage: {
+                  ...c.lastMessage,
+                  status,
+                },
+              };
+            }
+            return c;
+          })
+        );
+      })
+    );
+
+    // 3. Conversation Updates
+    unsubs.push(
+      chatSocket.on('conversation_updated', (payload: any) => {
+        if (!payload?.conversationId) return;
+        setChats((prev) =>
+          prev.map((c) => {
+            if (c.id === payload.conversationId && payload.lastMessage) {
+              return {
+                ...c,
+                lastMessage: payload.lastMessage,
+              };
+            }
+            return c;
+          })
+        );
+      })
+    );
+
+    unsubs.push(
+      chatSocket.on('conversation_saved', (conv: any) => {
+        if (!conv?.id) return;
+        setChats((prev) => {
+          const exists = prev.some((c) => c.id === conv.id);
+          if (exists) {
+            return prev.map((c) => (c.id === conv.id ? { ...c, ...conv } : c));
+          }
+          return [conv, ...prev];
+        });
+      })
+    );
+
+    // 4. Typing Indicator
+    unsubs.push(
+      chatSocket.on('typing_indicator', (payload: any) => {
+        if (!payload?.conversationId || !payload?.userId) return;
+        if (String(payload.userId) === String(currentUserId)) return;
+
+        const typingUser = users.find((u) => String(u.id) === String(payload.userId));
+        const displayName = typingUser?.name || 'Someone';
+
+        if (payload.isTyping) {
+          setTypingStatus((prev) => ({
+            ...prev,
+            [payload.conversationId]: displayName,
+          }));
+          setTimeout(() => {
+            setTypingStatus((prev) => {
+              const next = { ...prev };
+              delete next[payload.conversationId];
+              return next;
+            });
+          }, 3500);
+        } else {
+          setTypingStatus((prev) => {
+            const next = { ...prev };
+            delete next[payload.conversationId];
+            return next;
+          });
+        }
+      })
+    );
+
+    return () => {
+      unsubs.forEach((fn) => fn());
+    };
+  }, [isAuthenticated, currentUserId, activeChatId, users]);
 
   // Dynamic Read Synchronizer: Automatically mark conversation as read when opened or switched
   useEffect(() => {
@@ -882,7 +1204,10 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       };
 
       // Optimistic state update (Sender sees cleartext immediately with 1 grey tick)
-      setMessages((prev) => [...prev, newMsg]);
+      setMessagesByChatId((prev) => ({
+        ...prev,
+        [chatId]: [...(prev[chatId] || []).filter((m) => m.id !== newMsgId), newMsg],
+      }));
 
       // Update chat's lastMessage
       setChats((prev) =>
@@ -938,13 +1263,14 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           replyTo: options?.replyTo,
         })
         .then((encResult) => {
-          setMessages((prev) =>
-            prev.map((m) =>
+          setMessagesByChatId((prev) => ({
+            ...prev,
+            [chatId]: (prev[chatId] || []).map((m) =>
               m.id === newMsgId
                 ? { ...m, rawCiphertext: encResult.ciphertext, keyVersion: encResult.keyVersion }
                 : m
-            )
-          );
+            ),
+          }));
           const wireMessage: Partial<ChatMessage> = {
             id: newMsgId,
             chatId,
@@ -960,8 +1286,9 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           };
           return dmsApi.sendChatMessage(wireMessage).then((savedMsg) => {
             if (savedMsg) {
-              setMessages((prev) =>
-                prev.map((m) =>
+              setMessagesByChatId((prev) => ({
+                ...prev,
+                [chatId]: (prev[chatId] || []).map((m) =>
                   m.id === newMsgId
                     ? {
                         ...m,
@@ -972,8 +1299,8 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
                         deliveredTo: savedMsg.deliveredTo,
                       }
                     : m
-                )
-              );
+                ),
+              }));
             }
           });
         })
@@ -1662,6 +1989,11 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         openTaskChat,
         messages,
         chatMessages,
+        messagesByChatId,
+        hasMoreOlderMessages,
+        isLoadingOlderMessages,
+        loadOlderMessages,
+        sendTypingIndicator,
         sendMessage,
         reactToMessage,
         highlightedMessageId,
