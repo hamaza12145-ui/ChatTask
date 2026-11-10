@@ -47,15 +47,33 @@ export const NewChatModal: React.FC = () => {
       const targetUser = users.find((u) => u.id === selectedUserIds[0]);
       if (!targetUser) return;
 
+      // 1. Check if active direct chat with messages already exists
       const existing = chats.find(
         (c) =>
           c.type === 'direct' &&
-          c.participantIds.includes(currentUser.id) &&
-          c.participantIds.includes(targetUser.id)
+          !c.isDraft &&
+          Boolean(c.lastMessage) &&
+          c.participantIds?.map(String).includes(String(currentUser.id)) &&
+          c.participantIds?.map(String).includes(String(targetUser.id))
       );
 
       if (existing) {
         setActiveChatId(existing.id);
+        setIsNewChatModalOpen(false);
+        return;
+      }
+
+      // 2. Check if an existing draft chat is already open for this colleague
+      const existingDraft = chats.find(
+        (c) =>
+          c.type === 'direct' &&
+          c.isDraft &&
+          c.participantIds?.map(String).includes(String(currentUser.id)) &&
+          c.participantIds?.map(String).includes(String(targetUser.id))
+      );
+
+      if (existingDraft) {
+        setActiveChatId(existingDraft.id);
         setIsNewChatModalOpen(false);
         return;
       }

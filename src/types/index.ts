@@ -193,6 +193,7 @@ export interface Chat {
   };
   unreadCounts: Record<string, number>; // userId -> count
   description?: string;
+  isDraft?: boolean; // True when a user selects someone to start a chat before the first message is sent
 }
 
 export type NotificationType = 

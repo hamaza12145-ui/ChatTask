@@ -888,9 +888,36 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
          * 2. If the user is currently viewing this chat, unread count remains 0.
          * 3. If the user has a different conversation open (or Chat List), increment unread count for currentUserId.
          * 4. Messages sent by the current user never increment their own unread count.
+         * 5. If this is the first message received for this conversation, immediately add it to the recipient's Chat List.
          */
-        setChats((prev) =>
-          prev.map((c) => {
+        setChats((prev) => {
+          const exists = prev.some((c) => c.id === msgChatId);
+          if (!exists) {
+            // New conversation dynamically arriving for recipient in real-time
+            const newChatFromMessage: Chat = {
+              id: msgChatId,
+              name: rawMsg.conversationName || `Chat`,
+              type: rawMsg.conversationType || (rawMsg.participantIds?.length > 2 ? 'group' : 'direct'),
+              avatarBg: 'bg-indigo-600',
+              participantIds: rawMsg.participantIds || [String(currentUserId), String(decryptedMsg.senderId)],
+              adminIds: [String(decryptedMsg.senderId)],
+              unreadCounts: {
+                [currentUserId]: isOtherSender && !isCurrentChat ? 1 : 0,
+                [String(currentUserId)]: isOtherSender && !isCurrentChat ? 1 : 0,
+              },
+              isDraft: false,
+              lastMessage: {
+                text: decryptedMsg.text || (decryptedMsg.voiceDuration ? 'Voice message' : 'Shared an attachment'),
+                timestamp: decryptedMsg.timestamp,
+                senderId: decryptedMsg.senderId,
+                type: decryptedMsg.type,
+                status: decryptedMsg.status,
+              },
+            };
+            return [newChatFromMessage, ...prev];
+          }
+
+          return prev.map((c) => {
             if (c.id === msgChatId) {
               const currentUnread = c.unreadCounts || {};
               const prevCount = Number(
@@ -906,6 +933,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
               };
               return {
                 ...c,
+                isDraft: false,
                 lastMessage: {
                   text: decryptedMsg.text || (decryptedMsg.voiceDuration ? 'Voice message' : 'Shared an attachment'),
                   timestamp: decryptedMsg.timestamp,
@@ -917,8 +945,8 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
               };
             }
             return c;
-          })
-        );
+          });
+        });
 
         // Auto receipts
         if (isOtherSender) {
@@ -1043,12 +1071,36 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     unsubs.push(
       chatSocket.on('conversation_saved', (conv: any) => {
         if (!conv?.id) return;
+
+        // Direct and group conversations must have at least 1 message before appearing in Chat List
+        const isChannelOrTask = conv.type === 'channel' || conv.type === 'announcement' || Boolean(conv.linkedTaskId);
+        const hasMessages = Boolean(conv.lastMessage && (conv.lastMessage.text || conv.lastMessage.type));
+        if (!isChannelOrTask && !hasMessages) return;
+
+        // Current user must be a participant
+        const uid = String(currentUserId);
+        const isParticipant =
+          !conv.participantIds ||
+          conv.participantIds.length === 0 ||
+          conv.participantIds.map(String).includes(uid);
+        if (!isParticipant) return;
+
         setChats((prev) => {
           const exists = prev.some((c) => c.id === conv.id);
           if (exists) {
-            return prev.map((c) => (c.id === conv.id ? { ...c, ...conv } : c));
+            return prev.map((c) =>
+              c.id === conv.id
+                ? {
+                    ...c,
+                    ...conv,
+                    isDraft: false,
+                    lastMessage: conv.lastMessage || c.lastMessage,
+                    unreadCounts: conv.unreadCounts || c.unreadCounts,
+                  }
+                : c
+            );
           }
-          return [conv, ...prev];
+          return [{ ...conv, isDraft: false }, ...prev];
         });
       })
     );
@@ -1300,6 +1352,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
       // Find target chat participants for E2EE key distribution
       const targetChat = chats.find((c) => c.id === chatId);
+      const isDraftChat = Boolean(targetChat?.isDraft || (!targetChat?.lastMessage && targetChat?.type !== 'channel'));
       const participantIds = targetChat?.participantIds && targetChat.participantIds.length > 0
         ? targetChat.participantIds
         : [currentUser.id];
@@ -1327,23 +1380,38 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         [chatId]: [...(prev[chatId] || []).filter((m) => m.id !== newMsgId), newMsg],
       }));
 
-      // Update chat's lastMessage
+      // Update chat's lastMessage and transition from draft to active visible conversation
+      const lastMsgSummary = {
+        text: text || (options?.voiceDuration ? 'Voice message' : 'Shared an attachment'),
+        timestamp: now,
+        senderId: currentUser.id,
+        type,
+        status: 'sent' as const,
+      };
+
       setChats((prev) =>
         prev.map((c) =>
           c.id === chatId
             ? {
                 ...c,
-                lastMessage: {
-                  text: text || (options?.voiceDuration ? 'Voice message' : 'Shared an attachment'),
-                  timestamp: now,
-                  senderId: currentUser.id,
-                  type,
-                  status: 'sent',
-                },
+                isDraft: false,
+                lastMessage: lastMsgSummary,
               }
             : c
         )
       );
+
+      // If this conversation was a local draft, persist the activated conversation to the backend
+      if (isDraftChat && targetChat) {
+        const activatedChat: Chat = {
+          ...targetChat,
+          isDraft: false,
+          lastMessage: lastMsgSummary,
+        };
+        dmsApi.saveConversation(activatedChat).catch((err) => {
+          console.warn('Failed to persist newly activated conversation to backend:', err?.message);
+        });
+      }
 
       // Create mention notifications
       mentionedUserIds.forEach((mentionedId) => {
@@ -1389,7 +1457,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
                 : m
             ),
           }));
-          const wireMessage: Partial<ChatMessage> = {
+          const wireMessage: any = {
             id: newMsgId,
             chatId,
             senderId: currentUser.id,
@@ -1401,6 +1469,9 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
             keyVersion: encResult.keyVersion,
             mentions: mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
             taskId: options?.taskId ? String(options.taskId) : undefined,
+            participantIds,
+            conversationName: targetChat?.name || 'Chat',
+            conversationType: targetChat?.type || 'direct',
           };
           return dmsApi.sendChatMessage(wireMessage).then((savedMsg) => {
             if (savedMsg) {
@@ -1424,7 +1495,15 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         })
         .catch((err) => {
           console.error('Failed to encrypt or persist message to ERP-Task database:', err?.message);
-          dmsApi.sendChatMessage(newMsg).catch(() => {});
+          dmsApi.sendChatMessage(newMsg).catch(() => {
+            // If message sending fails, revert draft conversation status so it does not stay visible as an active chat
+            if (isDraftChat) {
+              setChats((prev) =>
+                prev.map((c) => (c.id === chatId ? { ...c, isDraft: true, lastMessage: undefined } : c))
+              );
+            }
+            addToast('Failed to send message. Please try again.', 'error');
+          });
         });
 
       // If this conversation is associated with a specific DMS task, synchronize message as a task comment in DMS
@@ -2137,9 +2216,20 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   );
 
   // Create new chat
+  // Create new chat
+  // Rule: Selecting a colleague creates a local draft chat. It must NOT appear in either user's Chat List
+  // and must NOT be saved to the backend until the first message is sent and successfully persisted.
   const createChat = useCallback(
     (data: { name: string; type: 'direct' | 'group' | 'channel'; participantIds: string[]; department?: Department }) => {
-      const chatId = 'chat_' + Date.now();
+      const isChannel = data.type === 'channel';
+
+      // Deterministic conversation ID for direct chats (dm_min_max)
+      let chatId = 'chat_' + Date.now();
+      if (data.type === 'direct' && data.participantIds.length === 1) {
+        const uids = [String(currentUser.id), String(data.participantIds[0])].sort();
+        chatId = `dm_${uids[0]}_${uids[1]}`;
+      }
+
       const newChat: Chat = {
         id: chatId,
         name: data.name,
@@ -2149,9 +2239,18 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         adminIds: [currentUser.id],
         department: data.department || currentUser.department,
         unreadCounts: {},
+        isDraft: !isChannel, // Only channels are permanent immediately; direct and group chats start as drafts
       };
 
-      setChats((prev) => [newChat, ...prev]);
+      setChats((prev) => {
+        const existingIdx = prev.findIndex((c) => c.id === chatId);
+        if (existingIdx >= 0) {
+          // If already in list, retain it without creating duplicates
+          return prev;
+        }
+        return [newChat, ...prev];
+      });
+
       setActiveChatId(chatId);
       setActiveMobileTab('chats');
       setIsNewChatModalOpen(false);
@@ -2161,15 +2260,17 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         console.warn('E2EE key generation notice for new chat:', err);
       });
 
-      // Persist conversation to ERP-Task backend
-      dmsApi.saveConversation(newChat).catch((err) => {
-        console.warn('Failed to persist conversation to DMS backend:', err?.message);
-      });
+      // ONLY persist persistent channels immediately.
+      // Direct and group chats must NOT be saved to backend or broadcast until the first message is sent!
+      if (isChannel) {
+        dmsApi.saveConversation(newChat).catch((err) => {
+          console.warn('Failed to persist conversation to DMS backend:', err?.message);
+        });
+      }
 
-      addToast(`Chat "${data.name}" created`, 'success');
       return chatId;
     },
-    [currentUser, addToast]
+    [currentUser]
   );
 
   // Open or create a discussion chat dedicated to a specific DMS task

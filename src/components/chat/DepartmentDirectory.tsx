@@ -84,29 +84,47 @@ export const DepartmentDirectory: React.FC<DepartmentDirectoryProps> = ({
       return;
     }
 
-    // Find existing direct chat with this user
+    // Find existing direct chat with this user that has messages
     const existingChat = chats.find(
       (c) =>
         c.type === 'direct' &&
-        c.participantIds.includes(currentUser.id) &&
-        c.participantIds.includes(user.id)
+        !c.isDraft &&
+        Boolean(c.lastMessage) &&
+        c.participantIds?.map(String).includes(String(currentUser.id)) &&
+        c.participantIds?.map(String).includes(String(user.id))
     );
 
     if (existingChat) {
       setActiveChatId(existingChat.id);
       setActiveMobileTab('chats');
       addToast(`Opened chat with ${user.name}`, 'info');
-    } else {
-      // Create new direct chat
-      const newChatId = createChat({
-        name: user.name,
-        type: 'direct',
-        participantIds: [user.id],
-        department: user.department,
-      });
-      setActiveChatId(newChatId);
-      setActiveMobileTab('chats');
+      return;
     }
+
+    // Check if an existing draft chat is already open with this user
+    const existingDraft = chats.find(
+      (c) =>
+        c.type === 'direct' &&
+        c.isDraft &&
+        c.participantIds?.map(String).includes(String(currentUser.id)) &&
+        c.participantIds?.map(String).includes(String(user.id))
+    );
+
+    if (existingDraft) {
+      setActiveChatId(existingDraft.id);
+      setActiveMobileTab('chats');
+      return;
+    }
+
+    // Create new draft direct chat (will only persist and appear in chat list after first message is sent)
+    const newChatId = createChat({
+      name: user.name,
+      type: 'direct',
+      participantIds: [user.id],
+      department: user.department,
+    });
+    setActiveChatId(newChatId);
+    setActiveMobileTab('chats');
   };
 
   const handleOpenDeptChannel = (deptId: string, deptLabel: string, deptUsers: User[]) => {

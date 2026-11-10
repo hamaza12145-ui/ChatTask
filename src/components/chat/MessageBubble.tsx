@@ -255,7 +255,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center justify-between px-1">
             <span className="flex items-center gap-1">
               <Calendar className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
-              <span>Team Task</span>
+              <span>Task</span>
             </span>
             <span className="text-[10px] font-mono tabular-nums">{formatTime(message.timestamp)}</span>
           </div>

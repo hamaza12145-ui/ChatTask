@@ -1625,20 +1625,28 @@ class DmsApiService {
       const endpoint = activeUid ? `/chat/conversations?userId=${activeUid}` : '/chat/conversations';
       const res = await this.request<{ success?: boolean; data: any[] }>(endpoint);
       const convs = res.data || [];
-      return convs.map((c: any): Chat => ({
-        id: c.id,
-        name: c.name,
-        type: c.type || 'group',
-        avatarBg: c.avatarBg || 'bg-slate-700',
-        participantIds: (c.participantIds || []).map(String),
-        adminIds: (c.adminIds || []).map(String),
-        department: c.department || undefined,
-        linkedTaskId: c.linkedTaskId || undefined,
-        isPinned: Boolean(c.isPinned),
-        description: c.description || undefined,
-        lastMessage: c.lastMessage || undefined,
-        unreadCounts: c.unreadCounts || {},
-      }));
+      return convs
+        .filter((c: any) => {
+          // Channels, announcements, and task-linked chats are always visible
+          const isChannelOrTask = c.type === 'channel' || c.type === 'announcement' || Boolean(c.linkedTaskId);
+          if (isChannelOrTask) return true;
+          // Direct and group chats must have at least one successfully sent message
+          return Boolean(c.lastMessage && (c.lastMessage.text || c.lastMessage.type));
+        })
+        .map((c: any): Chat => ({
+          id: c.id,
+          name: c.name,
+          type: c.type || 'group',
+          avatarBg: c.avatarBg || 'bg-slate-700',
+          participantIds: (c.participantIds || []).map(String),
+          adminIds: (c.adminIds || []).map(String),
+          department: c.department || undefined,
+          linkedTaskId: c.linkedTaskId || undefined,
+          isPinned: Boolean(c.isPinned),
+          description: c.description || undefined,
+          lastMessage: c.lastMessage || undefined,
+          unreadCounts: c.unreadCounts || {},
+        }));
     } catch (err: any) {
       console.warn('Failed to fetch conversations:', err?.message);
       return [];

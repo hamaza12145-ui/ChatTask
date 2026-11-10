@@ -39,10 +39,19 @@ export const ChatList: React.FC = () => {
 
   const query = searchQuery.trim().toLowerCase();
 
-  // 1. Filter existing conversations where currentUser is an authorized participant
+  // 1. Filter existing conversations where currentUser is an authorized participant.
+  // Rule: A conversation appears in Chat List ONLY after at least one message has been sent (or if it is a channel/linked task).
+  // Empty draft conversations created when selecting a user must NEVER appear in the list.
   const filteredChats = useMemo(() => {
     const uid = String(currentUser.id);
     return chats.filter((chat) => {
+      // Never display draft conversations in the visible Chat List
+      if (chat.isDraft) return false;
+
+      // Channels, announcements, and task-linked chats are permanent; direct/groups require at least 1 message
+      const isChannelOrTask = chat.type === 'channel' || chat.type === 'announcement' || Boolean(chat.linkedTaskId);
+      if (!isChannelOrTask && !chat.lastMessage) return false;
+
       // Must be an authorized participant
       const isParticipant =
         chat.participantIds?.map(String).includes(uid) ||
@@ -104,7 +113,13 @@ export const ChatList: React.FC = () => {
     const uid = String(currentUser.id);
     const existingDirectUserIds = new Set<string>();
     chats.forEach((c) => {
-      if (c.type === 'direct' && c.participantIds?.map(String).includes(uid)) {
+      // Only treat as existing conversation if it has actually exchanged messages and is not a draft
+      if (
+        c.type === 'direct' &&
+        !c.isDraft &&
+        Boolean(c.lastMessage) &&
+        c.participantIds?.map(String).includes(uid)
+      ) {
         c.participantIds.forEach((pid) => {
           if (String(pid) !== uid) {
             existingDirectUserIds.add(String(pid));
@@ -126,16 +141,33 @@ export const ChatList: React.FC = () => {
   }, [query, users, chats, currentUser.id]);
 
   const handleStartChatWithUser = (user: User) => {
-    // Check if direct chat already exists
+    // Check if active direct chat with messages already exists
     const existing = chats.find(
       (c) =>
         c.type === 'direct' &&
+        !c.isDraft &&
+        Boolean(c.lastMessage) &&
         c.participantIds?.map(String).includes(String(currentUser.id)) &&
         c.participantIds?.map(String).includes(String(user.id))
     );
 
     if (existing) {
       setActiveChatId(existing.id);
+      setSearchQuery('');
+      return;
+    }
+
+    // Check if a draft chat already exists with this user
+    const existingDraft = chats.find(
+      (c) =>
+        c.type === 'direct' &&
+        c.isDraft &&
+        c.participantIds?.map(String).includes(String(currentUser.id)) &&
+        c.participantIds?.map(String).includes(String(user.id))
+    );
+
+    if (existingDraft) {
+      setActiveChatId(existingDraft.id);
       setSearchQuery('');
       return;
     }
