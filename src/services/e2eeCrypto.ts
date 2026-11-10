@@ -77,12 +77,12 @@ class E2eeCryptoService {
     return typeof window !== 'undefined' && Boolean(window.crypto && window.crypto.subtle);
   }
 
-  private getSubtle(): SubtleCrypto {
+  private getSubtle(): SubtleCrypto | null {
     if (!this.cryptoSubtle) {
       if (typeof window !== 'undefined' && window.crypto?.subtle) {
         this.cryptoSubtle = window.crypto.subtle;
       } else {
-        throw new Error('Web Cryptography API (crypto.subtle) is not available in this environment');
+        return null;
       }
     }
     return this.cryptoSubtle;
@@ -93,8 +93,10 @@ class E2eeCryptoService {
    * Used to encrypt the user's private key before syncing to the server.
    * The server never sees the cleartext private key.
    */
-  private async deriveUserKdk(userId: string, email?: string, password?: string): Promise<CryptoKey> {
+  private async deriveUserKdk(userId: string, email?: string, password?: string): Promise<CryptoKey | null> {
+    if (!this.isSupported()) return null;
     const subtle = this.getSubtle();
+    if (!subtle) return null;
     const effectivePassword =
       password ||
       (typeof window !== 'undefined' ? sessionStorage.getItem('dms_session_secret_' + userId) : null) ||
@@ -153,7 +155,9 @@ class E2eeCryptoService {
     }
 
     this.initPromise = (async () => {
+      if (!this.isSupported()) return;
       const subtle = this.getSubtle();
+      if (!subtle) return;
       const privKeyStorageKey = `e2ee_priv_jwk_${uid}`;
       const pubKeyStorageKey = `e2ee_pub_jwk_${uid}`;
 
@@ -808,6 +812,7 @@ class E2eeCryptoService {
    */
   async decryptMessages(messages: ChatMessage[]): Promise<ChatMessage[]> {
     if (!messages || messages.length === 0) return [];
+    if (!this.isSupported()) return messages;
 
     // Ensure private key is initialized before attempting bulk decryption
     if (this.currentUserId && !this.myPrivateKey) {

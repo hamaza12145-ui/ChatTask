@@ -20,6 +20,9 @@ import {
   History,
   MessageCircle,
   ListTodo,
+  Lock,
+  Loader2,
+  User as UserIcon,
 } from 'lucide-react';
 
 export const TaskDrawer: React.FC = () => {
@@ -44,15 +47,31 @@ export const TaskDrawer: React.FC = () => {
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [togglingItemId, setTogglingItemId] = useState<string | null>(null);
 
   if (!isTaskDrawerOpen || !activeTask) return null;
 
+  const currentUid = Number(currentUser.id);
   const creator = getUserById(activeTask.creatorId);
   const sourceChat = chats.find(
     (c) => c.id === activeTask.sourceChatId || c.linkedTaskId === activeTask.id || c.id === `task_chat_${activeTask.id}`
   );
-  const isCreator = activeTask.creatorId === currentUser.id;
-  const isAssignee = activeTask.assigneeIds.includes(currentUser.id);
+
+  // Robust numeric ID checks matching ERP-Task backend & view rules
+  const isCreator = Number(activeTask.creatorId) === currentUid;
+  const isAssignee = activeTask.assigneeIds.some((id) => Number(id) === currentUid);
+  const isSuperAdmin =
+    currentUser.role?.toLowerCase() === 'admin' || currentUser.role?.toLowerCase() === 'super_admin';
+  const isTerminal = ['completed', 'closed', 'cancelled', 'rejected', 'pending_approval', 'approved'].includes(
+    (activeTask.status || '').toLowerCase()
+  );
+
+  // Overall MoV checklist editing permission (matches ERP-Task index.jsx)
+  const canEditMovChecklist =
+    !isTerminal &&
+    (isAssignee ||
+      isSuperAdmin ||
+      (isCreator && (!activeTask.movAssignments || activeTask.movAssignments.length === 0)));
 
   const isOverdue =
     new Date(activeTask.dueDate).getTime() < Date.now() && activeTask.status !== 'completed';
@@ -446,54 +465,147 @@ export const TaskDrawer: React.FC = () => {
           )}
         </div>
 
-        {/* Interactive Checklist / Means of Verification */}
+        {/* Interactive Checklist / Means of Verification (MoV) */}
         {activeTask.checklist.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-2">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
               <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
                 <ListTodo className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                 <span>Means of Verification (MoV)</span>
               </h4>
-              <span className="text-[11px] font-mono tabular-nums text-slate-500">
-                {activeTask.checklist.filter((i) => i.completed).length} / {activeTask.checklist.length} completed
+              <span className="text-[11px] font-mono font-semibold tabular-nums text-slate-600 dark:text-slate-400">
+                {activeTask.checklist.filter((i) => i.completed).length} / {activeTask.checklist.length} ({activeTask.progress ?? 0}%)
               </span>
             </div>
 
-            <div className="space-y-1.5">
-              {activeTask.checklist.map((item) => (
-                <div
-                  key={item.id}
-                  onClick={() => toggleChecklistItem(activeTask.id, item.id)}
-                  className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer transition-colors border ${
-                    item.completed
-                      ? 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-900/50'
-                      : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/60 dark:border-slate-800 hover:border-emerald-300'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={item.completed}
-                    onChange={() => {}}
-                    className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <span
-                      className={`text-xs block ${
-                        item.completed
-                          ? 'line-through text-slate-400 dark:text-slate-500'
-                          : 'text-slate-800 dark:text-slate-200 font-medium'
-                      }`}
-                    >
-                      {item.title}
-                    </span>
-                    {item.completedBy && (
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        by {getUserById(item.completedBy)?.name || 'Team member'}
-                      </span>
-                    )}
+            {/* Progress bar */}
+            <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden border border-slate-200/50 dark:border-slate-700/50">
+              <div
+                className="bg-emerald-500 h-full rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${Math.min(100, Math.max(0, activeTask.progress ?? 0))}%` }}
+              />
+            </div>
+
+            {/* Terminal status notice */}
+            {isTerminal && (
+              <div className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1.5 rounded-lg border border-amber-200 dark:border-amber-900/50 flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>Checklist is locked because task status is <strong>{activeTask.status.replace('_', ' ')}</strong>.</span>
+              </div>
+            )}
+
+            <div className="space-y-1.5 pt-1">
+              {activeTask.checklist.map((item) => {
+                const isChecked = Boolean(item.completed);
+                const isCheckedByOther =
+                  isChecked && item.completedById != null && Number(item.completedById) !== currentUid;
+                const isCreatorOnAnotherUsersMov =
+                  isCreator && item.assignedUserId != null && Number(item.assignedUserId) !== currentUid;
+                const isAssignedToCurrentUser =
+                  item.assignedUserId != null && Number(item.assignedUserId) === currentUid;
+                const isItemDisabled =
+                  isTerminal ||
+                  isCheckedByOther ||
+                  (!canEditMovChecklist && !isAssignedToCurrentUser) ||
+                  isCreatorOnAnotherUsersMov;
+                const isTogglingThis = togglingItemId === item.id;
+
+                const completedUser = item.completedById
+                  ? getUserById(String(item.completedById))
+                  : item.completedBy
+                  ? getUserById(String(item.completedBy))
+                  : null;
+
+                const assignedUser = item.assignedUserId != null ? getUserById(String(item.assignedUserId)) : null;
+
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => {
+                      if (!isItemDisabled && !isTogglingThis) {
+                        setTogglingItemId(item.id);
+                        toggleChecklistItem(activeTask.id, item.id).finally(() => {
+                          setTogglingItemId(null);
+                        });
+                      }
+                    }}
+                    className={`flex items-start gap-2.5 p-2.5 rounded-lg border transition-all ${
+                      isItemDisabled
+                        ? 'cursor-not-allowed bg-slate-50/70 dark:bg-slate-800/40 border-slate-200/50 dark:border-slate-800/50 opacity-80'
+                        : 'cursor-pointer hover:border-emerald-400 dark:hover:border-emerald-600 shadow-sm'
+                    } ${
+                      isChecked
+                        ? 'bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/50'
+                        : 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    <div className="pt-0.5 flex-shrink-0">
+                      {isTogglingThis ? (
+                        <Loader2 className="w-4 h-4 text-emerald-600 animate-spin" />
+                      ) : (
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          disabled={isItemDisabled}
+                          onChange={() => {}}
+                          className={`rounded text-emerald-600 focus:ring-emerald-500 ${
+                            isItemDisabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
+                          }`}
+                        />
+                      )}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span
+                          className={`text-xs ${
+                            isChecked
+                              ? 'line-through text-slate-400 dark:text-slate-500 font-normal'
+                              : 'text-slate-800 dark:text-slate-100 font-medium'
+                          }`}
+                        >
+                          {item.title}
+                        </span>
+
+                        {/* Status badges */}
+                        {isCheckedByOther && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300">
+                            <Lock className="w-2.5 h-2.5" />
+                            Locked
+                          </span>
+                        )}
+
+                        {isCreatorOnAnotherUsersMov && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                            <UserIcon className="w-2.5 h-2.5" />
+                            Assigned to {assignedUser?.name || `User #${item.assignedUserId}`}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Detail row */}
+                      <div className="mt-1 flex items-center gap-3 text-[10px] text-slate-500 dark:text-slate-400">
+                        {assignedUser && !isCreatorOnAnotherUsersMov && (
+                          <span className="flex items-center gap-1">
+                            <UserIcon className="w-2.5 h-2.5 text-slate-400" />
+                            For: <strong className="text-slate-600 dark:text-slate-300">{assignedUser.name}</strong>
+                          </span>
+                        )}
+
+                        {isChecked && (
+                          <span className="flex items-center gap-1">
+                            <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500" />
+                            Completed by:{' '}
+                            <strong className="text-slate-700 dark:text-slate-200">
+                              {completedUser?.name || (item.completedById ? `User #${item.completedById}` : (item.completedBy || 'Team member'))}
+                            </strong>
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

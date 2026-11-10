@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import {
   Mail,
@@ -26,6 +26,24 @@ export const LoginView: React.FC = () => {
   const [rememberMe, setRememberMe] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Prevent browser autofill by keeping inputs readOnly until user interaction/focus
+  const [isEmailReadOnly, setIsEmailReadOnly] = useState(true);
+  const [isPasswordReadOnly, setIsPasswordReadOnly] = useState(true);
+
+  // Strictly enforce empty fields whenever login screen is opened or refreshed
+  useEffect(() => {
+    setEmail('');
+    setPassword('');
+
+    // Clear any aggressive browser autofill that fires right after mount
+    const timer = setTimeout(() => {
+      setEmail('');
+      setPassword('');
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,6 +112,24 @@ export const LoginView: React.FC = () => {
           )}
 
           <form onSubmit={handleSubmit} autoComplete="off" className="space-y-4">
+            {/* Hidden dummy decoy inputs to intercept aggressive browser credential autofill */}
+            <input
+              type="text"
+              name="fake_autofill_prevent_user"
+              tabIndex={-1}
+              autoComplete="off"
+              style={{ position: 'absolute', top: -9999, left: -9999, opacity: 0, height: 0, width: 0 }}
+              aria-hidden="true"
+            />
+            <input
+              type="password"
+              name="fake_autofill_prevent_password"
+              tabIndex={-1}
+              autoComplete="new-password"
+              style={{ position: 'absolute', top: -9999, left: -9999, opacity: 0, height: 0, width: 0 }}
+              aria-hidden="true"
+            />
+
             {/* Email Field */}
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -105,12 +141,14 @@ export const LoginView: React.FC = () => {
                 </div>
                 <input
                   type="email"
-                  name="email"
-                  id="email"
-                  autoComplete="off"
+                  name="dms_auth_identity"
+                  id="dms_auth_identity"
+                  autoComplete="one-time-code"
+                  readOnly={isEmailReadOnly}
+                  onFocus={() => setIsEmailReadOnly(false)}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Username"
+                  placeholder="Username or work email"
                   required
                   disabled={isSubmitting}
                   className="w-full pl-9 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 text-xs font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all"
@@ -131,9 +169,11 @@ export const LoginView: React.FC = () => {
                 </div>
                 <input
                   type={showPassword ? 'text' : 'password'}
-                  name="password"
-                  id="password"
+                  name="dms_auth_secret"
+                  id="dms_auth_secret"
                   autoComplete="new-password"
+                  readOnly={isPasswordReadOnly}
+                  onFocus={() => setIsPasswordReadOnly(false)}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••••••"

@@ -113,7 +113,7 @@ interface AppStoreContextType {
   submitProof: (taskId: string, photoUrl: string, note: string) => void;
   approveTask: (taskId: string) => void;
   rejectTask: (taskId: string, reason: string) => void;
-  toggleChecklistItem: (taskId: string, itemId: string) => void;
+  toggleChecklistItem: (taskId: string, itemId: string) => Promise<boolean>;
   addCommentToTask: (taskId: string, text: string) => Promise<void>;
   getTaskById: (taskId: string) => Task | undefined;
 
@@ -672,7 +672,9 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           }
         }
 
-        const decryptedMessages = await e2eeCrypto.decryptMessages(fetchedMessages);
+        const decryptedMessages = e2eeCrypto.isSupported()
+          ? await e2eeCrypto.decryptMessages(fetchedMessages)
+          : fetchedMessages;
         setMessagesByChatId((prev) => ({
           ...prev,
           [activeChatId]: decryptedMessages,
@@ -694,7 +696,12 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       if (err?.message?.includes('401') || err?.message?.includes('Unauthorized')) {
         setIsAuthenticated(false);
       }
-      if (!err?.message?.includes('permissions') && !err?.message?.includes('Forbidden')) {
+      if (
+        !err?.message?.includes('permissions') &&
+        !err?.message?.includes('Forbidden') &&
+        !err?.message?.includes('crypto') &&
+        !err?.message?.includes('Cryptography')
+      ) {
         addToast(`System Notice: ${err?.message || 'Connecting to backend...'}`, 'warning');
       }
     } finally {
@@ -705,7 +712,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   // Dynamic Real-Time Live Sync with ERP-Task & DMS without page refresh/reload
   useEffect(() => {
     // Initialize E2EE identity keypair for active user
-    if (currentUserId) {
+    if (currentUserId && e2eeCrypto.isSupported()) {
       e2eeCrypto.initUser(currentUserId).catch((err) => {
         console.warn('Failed to initialize E2EE identity for user:', err);
       });
@@ -773,20 +780,24 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           });
         }
 
-        // If the user is currently viewing activeChatId, mark incoming messages as read
-        if (activeChatId && currentUserId) {
+        // If the user is currently viewing the conversation, mark incoming messages as read
+        const currentActiveChat = activeChatIdRef.current;
+        if (currentActiveChat && currentUserId) {
           const hasUnreadIncoming = delta.messages.some(
             (m) =>
-              m.chatId === activeChatId &&
+              m.chatId === currentActiveChat &&
               String(m.senderId) !== String(currentUserId) &&
               (!m.readBy || !m.readBy[currentUserId])
           );
           if (hasUnreadIncoming) {
-            dmsApi.markConversationRead(activeChatId, currentUserId).catch(() => {});
+            dmsApi.markConversationRead(currentActiveChat, currentUserId).catch(() => {});
           }
         }
 
-        e2eeCrypto.decryptMessages(delta.messages).then((decryptedDelta) => {
+        const decryptPromise = e2eeCrypto.isSupported()
+          ? e2eeCrypto.decryptMessages(delta.messages)
+          : Promise.resolve(delta.messages);
+        decryptPromise.then((decryptedDelta) => {
           setMessagesByChatId((prev) => {
             const next = { ...prev };
             for (const dm of decryptedDelta) {
@@ -810,12 +821,12 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       if (delta.changed.notifications && delta.notifications) {
         setNotifications(delta.notifications);
       }
-    }, 10000);
+    }, 30000);
 
     return () => {
       unsubscribe();
     };
-  }, [refreshDmsData, currentUserId, activeChatId]);
+  }, [refreshDmsData, currentUserId]);
 
   // Synchronize socket conversation room membership with activeChatId
   useEffect(() => {
@@ -1138,7 +1149,9 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         addToast(`Welcome back, ${loggedUser.name || 'User'}!`, 'success');
         return true;
       } catch (err: any) {
-        addToast(err?.message || 'Login failed. Please check your credentials.', 'warning');
+        if (!err?.message?.includes('crypto') && !err?.message?.includes('Cryptography')) {
+          addToast(err?.message || 'Login failed. Please check your credentials.', 'warning');
+        }
         throw err;
       } finally {
         setIsLoadingDms(false);
@@ -1867,32 +1880,145 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     [tasks, currentUser, addToast]
   );
 
-  // Toggle checklist item
+  // ========================================================
+  // TASK INTEGRATION: TOGGLE CHECKLIST ITEM (MOV) WITH ERP BACKEND PERSISTENCE
+  // ========================================================
   const toggleChecklistItem = useCallback(
-    (taskId: string, itemId: string) => {
+    async (taskId: string, itemId: string): Promise<boolean> => {
+      const currentTask = tasks.find((t) => String(t.id) === String(taskId));
+      if (!currentTask) {
+        addToast('Task not found', 'warning');
+        return false;
+      }
+
+      const itemIndex = currentTask.checklist.findIndex((i) => i.id === itemId);
+      if (itemIndex === -1) {
+        addToast('Checklist item not found', 'warning');
+        return false;
+      }
+
+      const item = currentTask.checklist[itemIndex];
+      const isTerminal = ['completed', 'closed', 'cancelled', 'rejected', 'pending_approval', 'approved'].includes(
+        (currentTask.status || '').toLowerCase()
+      );
+      if (isTerminal) {
+        addToast(`Cannot modify checklist for task with status '${currentTask.status}'`, 'warning');
+        return false;
+      }
+
+      const currentUid = Number(currentUser.id);
+      const isCurrentUserCreator = Number(currentTask.creatorId) === currentUid;
+      const isCurrentUserAssignee = currentTask.assigneeIds.some((id) => Number(id) === currentUid);
+      const isSuperAdmin =
+        currentUser.role?.toLowerCase() === 'admin' || currentUser.role?.toLowerCase() === 'super_admin';
+
+      // Check per-item assignment
+      const isAssignedToThisItem = item.assignedUserId != null && Number(item.assignedUserId) === currentUid;
+
+      // Creator cannot edit an item that is specifically assigned to another user
+      const isCreatorOnAnotherUsersMov =
+        isCurrentUserCreator && item.assignedUserId != null && Number(item.assignedUserId) !== currentUid;
+
+      if (isCreatorOnAnotherUsersMov) {
+        addToast('This checklist item is specifically assigned to another team member', 'warning');
+        return false;
+      }
+
+      // Check ownership locking: another user's checked item cannot be modified
+      const isChecked = Boolean(item.completed);
+      const isCheckedByOther =
+        isChecked && item.completedById != null && Number(item.completedById) !== currentUid;
+
+      if (isCheckedByOther) {
+        addToast('This checklist item was checked by another user and cannot be modified', 'warning');
+        return false;
+      }
+
+      // General checklist edit permission check (matches ERP-Task index.jsx)
+      const canEditMovChecklist =
+        !isTerminal &&
+        (isCurrentUserAssignee ||
+          isSuperAdmin ||
+          (isCurrentUserCreator && (!currentTask.movAssignments || currentTask.movAssignments.length === 0)));
+
+      if (!canEditMovChecklist && !isAssignedToThisItem) {
+        addToast('You do not have permission to modify this checklist item', 'warning');
+        return false;
+      }
+
+      const newCompleted = !isChecked;
+      const nowIso = new Date().toISOString();
+
+      // Construct next checklist optimistically
+      const nextChecklist = currentTask.checklist.map((it, idx) => {
+        if (idx !== itemIndex) return it;
+        return {
+          ...it,
+          completed: newCompleted,
+          completedBy: newCompleted ? currentUser.name : undefined,
+          completedById: newCompleted ? currentUid : null,
+          completedAt: newCompleted ? nowIso : undefined,
+        };
+      });
+
+      const completedCount = nextChecklist.filter((it) => it.completed).length;
+      const totalCount = nextChecklist.length;
+      const nextProgress = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+      // Construct notes payload matching ERP-Task backend expectations:
+      // "Complete: X of Y checklist items completed. [indices:0,1][ownership:0=1,1=2]"
+      const checkedIndices: number[] = [];
+      const ownershipParts: string[] = [];
+      nextChecklist.forEach((it, idx) => {
+        const mIdx = it.movIndex !== undefined ? it.movIndex : idx;
+        if (it.completed) {
+          checkedIndices.push(mIdx);
+          const ownerId = it.completedById != null ? it.completedById : currentUid;
+          ownershipParts.push(`${mIdx}=${ownerId}`);
+        }
+      });
+
+      const notes =
+        `Complete: ${completedCount} of ${totalCount} checklist items completed.` +
+        (checkedIndices.length > 0
+          ? ` [indices:${checkedIndices.join(',')}][ownership:${ownershipParts.join(',')}]`
+          : ' [indices:][ownership:]');
+
+      // Optimistic update
+      const previousTasks = [...tasks];
       setTasks((prev) =>
         prev.map((t) => {
-          if (t.id !== taskId) return t;
-          const updatedChecklist = t.checklist.map((item) => {
-            if (item.id !== itemId) return item;
-            const completed = !item.completed;
-            return {
-              ...item,
-              completed,
-              completedBy: completed ? currentUser.id : undefined,
-              completedAt: completed ? new Date().toISOString() : undefined,
-            };
-          });
-
+          if (String(t.id) !== String(taskId)) return t;
           return {
             ...t,
-            checklist: updatedChecklist,
-            updatedAt: new Date().toISOString(),
+            checklist: nextChecklist,
+            progress: nextProgress,
+            updatedAt: nowIso,
           };
         })
       );
+
+      try {
+        const updatedTask = await dmsApi.updateTaskProgress(taskId, nextProgress, notes);
+        setTasks((prev) =>
+          prev.map((t) => (String(t.id) === String(taskId) ? updatedTask : t))
+        );
+        addToast(
+          newCompleted
+            ? `Checked MoV (${completedCount}/${totalCount})`
+            : `Unchecked MoV (${completedCount}/${totalCount})`,
+          'success'
+        );
+        return true;
+      } catch (err: any) {
+        console.error('Failed to persist task progress:', err);
+        // Rollback on error
+        setTasks(previousTasks);
+        addToast(err?.message || 'Failed to update checklist progress on backend', 'warning');
+        return false;
+      }
     },
-    [currentUser.id]
+    [tasks, currentUser, addToast]
   );
 
   // ========================================================

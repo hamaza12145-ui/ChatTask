@@ -51,7 +51,10 @@ export interface ChecklistItem {
   title: string;
   completed: boolean;
   completedBy?: string;
+  completedById?: number | null;
   completedAt?: string;
+  assignedUserId?: number | null;
+  movIndex?: number;
 }
 
 export interface TaskAttachment {
@@ -118,6 +121,10 @@ export interface Task {
   attachments: TaskAttachment[];
   comments: TaskComment[];
   activityLog: TaskActivityLog[];
+  lastProgressNotes?: string;
+  movItems?: string[];
+  movAssignments?: Array<{ mov_index: number; user_id: number | null }>;
+  rawTask?: any;
 }
 
 export type MessageType = 'text' | 'task_card' | 'system' | 'voice' | 'image' | 'document';

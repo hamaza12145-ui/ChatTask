@@ -486,7 +486,7 @@ class DmsApiService {
    * Start dynamic real-time live synchronization.
    * Returns an unsubscribe function to stop syncing.
    */
-  public startLiveSync(listener?: DmsSyncListener, intervalMs: number = 10000): () => void {
+  public startLiveSync(listener?: DmsSyncListener, intervalMs: number = 30000): () => void {
     if (listener) {
       this.syncListeners.add(listener);
     }
@@ -1122,91 +1122,160 @@ class DmsApiService {
   }
 
   /**
+   * Helper to parse and map DMS backend task into standard ChatTask model with full MOV state
+   */
+  public mapDmsTaskToApp(t: any): Task {
+    const code = `TASK-${t.id}`;
+    const status = this.mapDmsStatusToApp(t.status);
+    const priority = this.mapDmsPriorityToApp(t.priority);
+    const dept = (t.department || 'admin').toLowerCase() as Department;
+
+    // Map comments
+    const comments: TaskComment[] = (t.comments || []).map((c: any) => ({
+      id: String(c.id),
+      userId: String(c.author?.id || c.created_by_id || c.user_id || '5'),
+      text: c.content || c.comment || '',
+      createdAt: c.created_at || new Date().toISOString(),
+    }));
+
+    // Map activities
+    const activityLog: TaskActivityLog[] = (t.activities || []).map((a: any) => ({
+      id: String(a.id),
+      userId: String(a.performed_by?.id || a.user_id || '5'),
+      action: a.action || 'Updated task',
+      timestamp: a.created_at || new Date().toISOString(),
+      details: typeof a.details === 'object' ? JSON.stringify(a.details) : String(a.details || ''),
+    }));
+
+    // Map attachments
+    const attachments: TaskAttachment[] = (t.attachments || []).map((att: any) => ({
+      id: String(att.id),
+      name: att.file_name || 'attachment',
+      type: (att.file_type?.includes('image') ? 'image' : 'doc') as any,
+      url: att.file_url || '',
+    }));
+
+    // Extract raw MOV items from mov_items array or description
+    let movItemsList: string[] = [];
+    if (Array.isArray(t.mov_items) && t.mov_items.length > 0) {
+      movItemsList = t.mov_items.map((i: any) => String(i || '').trim()).filter(Boolean);
+    } else if (t.description && typeof t.description === 'string' && t.description.includes('[MOV CHECKLIST]')) {
+      const parts = t.description.split('[MOV CHECKLIST]');
+      if (parts[1]) {
+        movItemsList = parts[1]
+          .split('\n')
+          .map((line: string) => line.trim())
+          .filter((line: string) => line.startsWith('-'))
+          .map((line: string) => line.substring(1).trim())
+          .filter(Boolean);
+      }
+    }
+
+    // Parse checked indices and ownership map from last_progress_notes
+    // Format: Complete: X of Y checklist items completed. [indices:0,1][ownership:0=1,1=2]
+    const notesStr = String(t.last_progress_notes || '');
+    const indicesMatch = notesStr.match(/\[indices:([^\]]*)\]/);
+    const checkedIndices: number[] | null = indicesMatch
+      ? indicesMatch[1].split(',').filter(Boolean).map(Number)
+      : null;
+
+    const ownershipMap: Record<number, number> = {};
+    const ownershipMatch = notesStr.match(/\[ownership:([^\]]+)\]/);
+    if (ownershipMatch && ownershipMatch[1]) {
+      ownershipMatch[1].split(',').forEach((pair: string) => {
+        const [idxStr, uidStr] = pair.split('=');
+        if (idxStr !== undefined && uidStr !== undefined) {
+          ownershipMap[Number(idxStr)] = Number(uidStr);
+        }
+      });
+    }
+
+    const numericProgress = typeof t.progress === 'number' ? t.progress : 0;
+    const totalMov = movItemsList.length;
+    const fallbackCompletedCount = totalMov > 0 ? Math.round((numericProgress / 100) * totalMov) : 0;
+
+    // Map checklist items
+    const checklist: ChecklistItem[] = movItemsList.map((itemText: string, idx: number) => {
+      let isCompleted = false;
+      if (checkedIndices !== null) {
+        isCompleted = checkedIndices.includes(idx);
+      } else {
+        isCompleted = idx < fallbackCompletedCount;
+      }
+
+      const completedById = isCompleted
+        ? (ownershipMap[idx] ?? (t.updated_by_id ? Number(t.updated_by_id) : (t.created_by_id ? Number(t.created_by_id) : null)))
+        : null;
+
+      const assignmentObj = Array.isArray(t.mov_assignments)
+        ? t.mov_assignments.find((a: any) => Number(a.mov_index) === idx)
+        : null;
+      const assignedUserId = assignmentObj ? (assignmentObj.user_id != null ? Number(assignmentObj.user_id) : null) : null;
+
+      return {
+        id: `chk_${t.id}_${idx}`,
+        title: itemText,
+        completed: isCompleted,
+        completedById,
+        completedBy: completedById ? String(completedById) : undefined,
+        assignedUserId,
+        movIndex: idx,
+      };
+    });
+
+    const assigneeIds = (t.assigned_user_ids || []).map(String);
+    const reporterIds = Array.isArray(t.reported_to_ids)
+      ? t.reported_to_ids.map(String)
+      : Array.isArray(t.reported_to)
+      ? t.reported_to.map(String)
+      : t.reported_to_id != null
+      ? [String(t.reported_to_id)]
+      : [];
+
+    return {
+      id: String(t.id),
+      code,
+      title: t.title || `Task #${t.id}`,
+      description: t.description || '',
+      department: dept,
+      status,
+      priority,
+      dueDate: t.due_date ? String(t.due_date) : t.created_at || new Date().toISOString(),
+      startDate: t.start_date ? String(t.start_date) : undefined,
+      completedDate: t.completed_date ? String(t.completed_date) : undefined,
+      assigneeIds: assigneeIds.length > 0 ? assigneeIds : ['1'],
+      reporterIds: reporterIds.length > 0 ? reporterIds : undefined,
+      progress: numericProgress,
+      creatorId: String(t.created_by_id || '5'),
+      createdAt: t.created_at || new Date().toISOString(),
+      updatedAt: t.updated_at || new Date().toISOString(),
+      checklist,
+      requiresApproval: t.workflow_type === 'approval_required',
+      approval: t.approved_by_id?.length
+        ? {
+            status: 'approved',
+            reviewedBy: String(t.approved_by_id[0]),
+            reviewedAt: t.updated_at,
+          }
+        : undefined,
+      proofRequired: Boolean(t.proof_required || (movItemsList.length > 0)),
+      attachments,
+      comments,
+      activityLog,
+      lastProgressNotes: t.last_progress_notes || undefined,
+      movItems: movItemsList,
+      movAssignments: t.mov_assignments || [],
+      rawTask: t,
+    };
+  }
+
+  /**
    * Fetch all tasks from DMS API
    */
   async fetchTasks(): Promise<Task[]> {
     const res = await this.request<{ success?: boolean; data: any[] }>('/tasks/list?page=1&pageSize=100');
     const dmsTasks = res.data || [];
-
-    return dmsTasks.map((t: any): Task => {
-      const code = `TASK-${t.id}`;
-      const status = this.mapDmsStatusToApp(t.status);
-      const priority = this.mapDmsPriorityToApp(t.priority);
-      const dept = (t.department || 'admin').toLowerCase() as Department;
-
-      // Map comments
-      const comments: TaskComment[] = (t.comments || []).map((c: any) => ({
-        id: String(c.id),
-        userId: String(c.author?.id || c.created_by_id || c.user_id || '5'),
-        text: c.content || c.comment || '',
-        createdAt: c.created_at || new Date().toISOString(),
-      }));
-
-      // Map activities
-      const activityLog: TaskActivityLog[] = (t.activities || []).map((a: any) => ({
-        id: String(a.id),
-        userId: String(a.performed_by?.id || a.user_id || '5'),
-        action: a.action || 'Updated task',
-        timestamp: a.created_at || new Date().toISOString(),
-        details: typeof a.details === 'object' ? JSON.stringify(a.details) : String(a.details || ''),
-      }));
-
-      // Map attachments
-      const attachments = (t.attachments || []).map((att: any) => ({
-        id: String(att.id),
-        name: att.file_name || 'attachment',
-        type: (att.file_type?.includes('image') ? 'image' : 'doc') as any,
-        url: att.file_url || '',
-      }));
-
-      // Map checklist items from mov_items
-      const checklist = (t.mov_items || []).map((item: string, idx: number) => ({
-        id: `chk_${t.id}_${idx}`,
-        title: item,
-        completed: false,
-      }));
-
-      const assigneeIds = (t.assigned_user_ids || []).map(String);
-      const reporterIds = Array.isArray(t.reported_to_ids)
-        ? t.reported_to_ids.map(String)
-        : Array.isArray(t.reported_to)
-        ? t.reported_to.map(String)
-        : t.reported_to_id != null
-        ? [String(t.reported_to_id)]
-        : [];
-
-      return {
-        id: String(t.id),
-        code,
-        title: t.title || `Task #${t.id}`,
-        description: t.description || '',
-        department: dept,
-        status,
-        priority,
-        dueDate: t.due_date ? String(t.due_date) : t.created_at || new Date().toISOString(),
-        startDate: t.start_date ? String(t.start_date) : undefined,
-        completedDate: t.completed_date ? String(t.completed_date) : undefined,
-        assigneeIds: assigneeIds.length > 0 ? assigneeIds : ['1'],
-        reporterIds: reporterIds.length > 0 ? reporterIds : undefined,
-        progress: typeof t.progress === 'number' ? t.progress : 0,
-        creatorId: String(t.created_by_id || '5'),
-        createdAt: t.created_at || new Date().toISOString(),
-        updatedAt: t.updated_at || new Date().toISOString(),
-        checklist,
-        requiresApproval: t.workflow_type === 'approval_required',
-        approval: t.approved_by_id?.length
-          ? {
-              status: 'approved',
-              reviewedBy: String(t.approved_by_id[0]),
-              reviewedAt: t.updated_at,
-            }
-          : undefined,
-        proofRequired: Boolean(t.proof_required || (t.mov_items && t.mov_items.length > 0)),
-        attachments,
-        comments,
-        activityLog,
-      };
-    });
+    return dmsTasks.map((t: any) => this.mapDmsTaskToApp(t));
   }
 
   /**
@@ -1217,75 +1286,30 @@ class DmsApiService {
       const res = await this.request<{ success?: boolean; data: any }>(`/tasks/${id}`);
       const t = res.data;
       if (!t) return null;
-
-      const code = `TASK-${t.id}`;
-      const status = this.mapDmsStatusToApp(t.status);
-      const priority = this.mapDmsPriorityToApp(t.priority);
-      const dept = (t.department || 'admin').toLowerCase() as Department;
-
-      const comments: TaskComment[] = (t.comments || []).map((c: any) => ({
-        id: String(c.id),
-        userId: String(c.author?.id || c.created_by_id || c.user_id || '5'),
-        text: c.content || c.comment || '',
-        createdAt: c.created_at || new Date().toISOString(),
-      }));
-
-      const activityLog: TaskActivityLog[] = (t.activities || []).map((a: any) => ({
-        id: String(a.id),
-        userId: String(a.performed_by?.id || a.user_id || '5'),
-        action: a.action || 'Updated task',
-        timestamp: a.created_at || new Date().toISOString(),
-      }));
-
-      const attachments = (t.attachments || []).map((att: any) => ({
-        id: String(att.id),
-        name: att.file_name || 'attachment',
-        type: (att.file_type?.includes('image') ? 'image' : 'doc') as any,
-        url: att.file_url || '',
-      }));
-
-      const checklist = (t.mov_items || []).map((item: string, idx: number) => ({
-        id: `chk_${t.id}_${idx}`,
-        title: item,
-        completed: false,
-      }));
-
-      const assigneeIds = (t.assigned_user_ids || []).map(String);
-      const reporterIds = Array.isArray(t.reported_to_ids)
-        ? t.reported_to_ids.map(String)
-        : Array.isArray(t.reported_to)
-        ? t.reported_to.map(String)
-        : t.reported_to_id != null
-        ? [String(t.reported_to_id)]
-        : [];
-
-      return {
-        id: String(t.id),
-        code,
-        title: t.title || `Task #${t.id}`,
-        description: t.description || '',
-        department: dept,
-        status,
-        priority,
-        dueDate: t.due_date ? String(t.due_date) : t.created_at || new Date().toISOString(),
-        startDate: t.start_date ? String(t.start_date) : undefined,
-        completedDate: t.completed_date ? String(t.completed_date) : undefined,
-        assigneeIds: assigneeIds.length > 0 ? assigneeIds : ['1'],
-        reporterIds: reporterIds.length > 0 ? reporterIds : undefined,
-        progress: typeof t.progress === 'number' ? t.progress : 0,
-        creatorId: String(t.created_by_id || '5'),
-        createdAt: t.created_at || new Date().toISOString(),
-        updatedAt: t.updated_at || new Date().toISOString(),
-        checklist,
-        requiresApproval: t.workflow_type === 'approval_required',
-        proofRequired: Boolean(t.proof_required || (t.mov_items && t.mov_items.length > 0)),
-        attachments,
-        comments,
-        activityLog,
-      };
+      return this.mapDmsTaskToApp(t);
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Update task progress and MOV checklist state in ERP-Task backend
+   */
+  async updateTaskProgress(
+    taskId: string | number,
+    progress: number,
+    notes?: string
+  ): Promise<Task> {
+    const res = await this.request<{ success?: boolean; data: any }>(`/tasks/${taskId}/progress`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        progress: Math.max(0, Math.min(100, Math.round(progress))),
+        notes: notes || '',
+      }),
+    });
+
+    const updatedRaw = res.data;
+    return this.mapDmsTaskToApp(updatedRaw);
   }
 
   /**
