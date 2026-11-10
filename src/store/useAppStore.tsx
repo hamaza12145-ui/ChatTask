@@ -11,6 +11,8 @@ import {
   Department,
   QuotedMessage,
   TaskAttachment,
+  TaskActivityLog,
+  ProofSubmission,
   DeviceView,
 } from '../types';
 // SEED data completely removed - ERP-Task APIs and PostgreSQL database are the single source of truth.
@@ -21,7 +23,7 @@ import { chatSocket } from '../services/chatSocket';
 interface Toast {
   id: string;
   message: string;
-  type: 'success' | 'info' | 'warning';
+  type: 'success' | 'info' | 'warning' | 'error';
 }
 
 interface AppStoreContextType {
@@ -163,7 +165,7 @@ interface AppStoreContextType {
 
   // Toasts
   toasts: Toast[];
-  addToast: (message: string, type?: 'success' | 'info' | 'warning') => void;
+  addToast: (message: string, type?: 'success' | 'info' | 'warning' | 'error') => void;
   removeToast: (id: string) => void;
 
   // Device View & Layout Mode
@@ -605,7 +607,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   // Toasts
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const addToast = useCallback((message: string, type: 'success' | 'info' | 'warning' = 'info') => {
+  const addToast = useCallback((message: string, type: 'success' | 'info' | 'warning' | 'error' = 'info') => {
     const id = 'toast_' + Date.now() + Math.random().toString(36).substring(2, 5);
     setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(() => {
@@ -912,7 +914,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   useEffect(() => {
     if (!isAuthenticated || !currentUserId) return;
 
-    chatSocket.connect(dmsApi.getToken(), currentUserId);
+    chatSocket.connect(dmsApi.getToken() || undefined, currentUserId);
 
     if (activeChatIdRef.current) {
       chatSocket.joinConversation(activeChatIdRef.current);
@@ -1034,17 +1036,18 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           for (const cid of Object.keys(nextMap)) {
             const list = nextMap[cid];
             let listChanged = false;
-            const updatedList = list.map((m) => {
+            const updatedList: ChatMessage[] = list.map((m) => {
               if (messageId && m.id !== messageId) return m;
               if (status === 'read') {
                 const readBy = { ...(m.readBy || {}), [userId]: timestamp };
                 const deliveredTo = { ...(m.deliveredTo || {}), [userId]: timestamp };
                 listChanged = true;
-                return { ...m, status: 'read', deliveryStatus: 'read', readBy, deliveredTo };
+                return { ...m, status: 'read' as const, readBy, deliveredTo };
               } else if (status === 'delivered') {
                 const deliveredTo = { ...(m.deliveredTo || {}), [userId]: timestamp };
                 listChanged = true;
-                return { ...m, status: m.status === 'read' ? 'read' : 'delivered', deliveryStatus: 'delivered', deliveredTo };
+                const nextStatus: 'sent' | 'delivered' | 'read' = m.status === 'read' ? 'read' : 'delivered';
+                return { ...m, status: nextStatus, deliveredTo };
               }
               return m;
             });
@@ -1064,7 +1067,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
                 ...c,
                 lastMessage: {
                   ...c.lastMessage,
-                  status,
+                  status: status as 'read' | 'delivered',
                 },
               };
             }

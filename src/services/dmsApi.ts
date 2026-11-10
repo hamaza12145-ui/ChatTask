@@ -3,7 +3,20 @@
  * Single Source of Truth for Users, Departments, and Tasks.
  */
 
-import { User, Task, TaskStatus, TaskPriority, Department, TaskComment, TaskActivityLog, Chat, ChatMessage, AppNotification } from '../types';
+import {
+  User,
+  Task,
+  TaskStatus,
+  TaskPriority,
+  Department,
+  TaskComment,
+  TaskActivityLog,
+  TaskAttachment,
+  ChecklistItem,
+  Chat,
+  ChatMessage,
+  AppNotification,
+} from '../types';
 
 /**
  * Dynamically resolves the DMS/ERP backend URL.

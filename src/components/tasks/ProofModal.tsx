@@ -55,8 +55,7 @@ export const ProofModal: React.FC = () => {
   if (!task) return null;
 
   // Preset sample proofs available as fallback
-  const sampleProofs = [
-  ];
+  const sampleProofs: any[] = [];
 
   /**
    * Handle local file selection from file dialog or drag & drop

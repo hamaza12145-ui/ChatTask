@@ -88,6 +88,14 @@ class E2eeCryptoService {
     return this.cryptoSubtle;
   }
 
+  private requireSubtle(): SubtleCrypto {
+    const s = this.getSubtle();
+    if (!s) {
+      throw new Error('WebCrypto SubtleCrypto is not available in this environment');
+    }
+    return s;
+  }
+
   /**
    * Derive a 256-bit Key Derivation Key (KDK) via PBKDF2 from user credentials.
    * Used to encrypt the user's private key before syncing to the server.
@@ -95,7 +103,7 @@ class E2eeCryptoService {
    */
   private async deriveUserKdk(userId: string, email?: string, password?: string): Promise<CryptoKey | null> {
     if (!this.isSupported()) return null;
-    const subtle = this.getSubtle();
+    const subtle = this.requireSubtle();
     if (!subtle) return null;
     const effectivePassword =
       password ||
@@ -240,6 +248,9 @@ class E2eeCryptoService {
         if (serverRecord && serverRecord.encrypted_private_key && serverRecord.public_key) {
           try {
             const kdk = await this.deriveUserKdk(uid, email, password);
+            if (!kdk) {
+              throw new Error('KDK derivation returned null');
+            }
             const encPayload = JSON.parse(serverRecord.encrypted_private_key);
             const ivBuffer = base64ToArrayBuffer(encPayload.iv);
             const ctBuffer = base64ToArrayBuffer(encPayload.ct);
@@ -325,22 +336,24 @@ class E2eeCryptoService {
       // Encrypt private key with KDK before backup to server
       try {
         const kdk = await this.deriveUserKdk(uid, email, password);
-        const iv = new Uint8Array(12);
-        if (typeof window !== 'undefined' && window.crypto) {
-          window.crypto.getRandomValues(iv);
-        }
-        const encoder = new TextEncoder();
-        const encPriv = await subtle.encrypt(
-          { name: 'AES-GCM', iv },
-          kdk,
-          encoder.encode(privJwkString)
-        );
-        const encPayload = JSON.stringify({
-          iv: arrayBufferToBase64(iv),
-          ct: arrayBufferToBase64(encPriv),
-        });
+        if (kdk) {
+          const iv = new Uint8Array(12);
+          if (typeof window !== 'undefined' && window.crypto) {
+            window.crypto.getRandomValues(iv);
+          }
+          const encoder = new TextEncoder();
+          const encPriv = await subtle.encrypt(
+            { name: 'AES-GCM', iv },
+            kdk,
+            encoder.encode(privJwkString)
+          );
+          const encPayload = JSON.stringify({
+            iv: arrayBufferToBase64(iv),
+            ct: arrayBufferToBase64(encPriv),
+          });
 
-        await dmsApi.publishIdentityKey(uid, pubJwkString, 'RSA-OAEP', encPayload, 'dms_e2ee_salt_' + uid);
+          await dmsApi.publishIdentityKey(uid, pubJwkString, 'RSA-OAEP', encPayload, 'dms_e2ee_salt_' + uid);
+        }
       } catch (backupErr) {
         console.warn('Failed to backup client-encrypted private key to server:', backupErr);
         await this.syncPublicKeyToServer(uid, pubJwkString);
@@ -377,7 +390,7 @@ class E2eeCryptoService {
       const pubKeyStr = await dmsApi.fetchUserPublicKey(uid);
       if (!pubKeyStr) return null;
 
-      const subtle = this.getSubtle();
+      const subtle = this.requireSubtle();
       const jwk = JSON.parse(pubKeyStr);
       const cryptoKey = await subtle.importKey(
         'jwk',
@@ -416,7 +429,7 @@ class E2eeCryptoService {
     if (missingIds.length > 0) {
       try {
         const keyMap = await dmsApi.fetchUsersPublicKeys(missingIds);
-        const subtle = this.getSubtle();
+        const subtle = this.requireSubtle();
 
         for (const [uid, pubKeyStr] of Object.entries(keyMap)) {
           if (pubKeyStr) {
@@ -453,7 +466,7 @@ class E2eeCryptoService {
   ): Promise<void> {
     if (!this.isSupported()) return;
     if (!participantIds || participantIds.length === 0) return;
-    const subtle = this.getSubtle();
+    const subtle = this.requireSubtle();
 
     try {
       const allParticipants = new Set(participantIds.map(String));
@@ -498,7 +511,7 @@ class E2eeCryptoService {
     requestedVersion?: number
   ): Promise<{ key: CryptoKey; version: number } | null> {
     if (!this.isSupported()) return null;
-    const subtle = this.getSubtle();
+    const subtle = this.requireSubtle();
     const version = requestedVersion || this.conversationKeyVersions.get(conversationId) || 1;
     const cacheKey = `${conversationId}:v${version}`;
 
@@ -610,7 +623,7 @@ class E2eeCryptoService {
    * Generates a new key version and distributes only to the updated participant list.
    */
   async rotateConversationKey(conversationId: string, currentParticipantIds: string[]): Promise<number> {
-    const subtle = this.getSubtle();
+    const subtle = this.requireSubtle();
     const currentVersion = this.conversationKeyVersions.get(conversationId) || 1;
     const nextVersion = currentVersion + 1;
 
@@ -674,7 +687,7 @@ class E2eeCryptoService {
         keyVersion: 1,
       };
     }
-    const subtle = this.getSubtle();
+    const subtle = this.requireSubtle();
     const keyInfo = await this.getOrCreateConversationKey(conversationId, participantIds);
 
     if (!keyInfo) {
@@ -774,7 +787,7 @@ class E2eeCryptoService {
         };
       }
 
-      const subtle = this.getSubtle();
+      const subtle = this.requireSubtle();
       const ivBuffer = base64ToArrayBuffer(pkg.iv);
       const ctBuffer = base64ToArrayBuffer(pkg.ct);
 
