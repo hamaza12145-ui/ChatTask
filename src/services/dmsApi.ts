@@ -1398,7 +1398,35 @@ class DmsApiService {
   }
 
   /**
-   * Upload an attachment for a task
+   * Add attachment record directly to a task (supports data URLs, S3 URLs, or local preview URLs)
+   */
+  async addTaskAttachment(
+    taskId: string | number,
+    attachment: {
+      file_name: string;
+      file_url: string;
+      file_type: string;
+      description?: string;
+      is_initial?: boolean;
+    }
+  ): Promise<any> {
+    const id = parseInt(String(taskId), 10);
+    return this.request(`/tasks/${id}/attachments`, {
+      method: 'POST',
+      body: JSON.stringify({
+        file_name: attachment.file_name,
+        file_url: attachment.file_url,
+        file_type: attachment.file_type,
+        description: attachment.description || attachment.file_name,
+        is_initial: Boolean(attachment.is_initial),
+      }),
+    });
+  }
+
+  /**
+   * Upload an attachment for a task.
+   * If multipart upload (e.g. S3) fails or S3 is unconfigured, automatically falls back
+   * to base64 direct attachment storage via /tasks/:id/attachments.
    */
   async uploadTaskAttachment(
     taskId: string | number,
@@ -1407,17 +1435,41 @@ class DmsApiService {
     isInitial = true
   ): Promise<any> {
     const id = parseInt(String(taskId), 10);
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('is_initial', isInitial ? 'true' : 'false');
-    if (name) {
-      formData.append('description', name);
-      formData.append('name', name);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('is_initial', isInitial ? 'true' : 'false');
+      if (name) {
+        formData.append('description', name);
+        formData.append('name', name);
+      }
+      return await this.request(`/tasks/${id}/attachments/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+    } catch (uploadErr) {
+      // Fallback: convert file to data URL and persist directly to task attachments
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            const dataUrl = reader.result as string;
+            const direct = await this.addTaskAttachment(id, {
+              file_name: file.name,
+              file_url: dataUrl,
+              file_type: file.type || 'application/octet-stream',
+              description: name || file.name,
+              is_initial: isInitial,
+            });
+            resolve(direct);
+          } catch (directErr) {
+            reject(directErr);
+          }
+        };
+        reader.onerror = () => reject(uploadErr);
+        reader.readAsDataURL(file);
+      });
     }
-    return this.request(`/tasks/${id}/attachments/upload`, {
-      method: 'POST',
-      body: formData,
-    });
   }
 
   /**

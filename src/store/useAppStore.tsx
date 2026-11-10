@@ -110,7 +110,17 @@ interface AppStoreContextType {
     assignedUsersMeta?: Array<{ user_id: number; department: string }>;
   }) => Promise<Task>;
   updateTaskStatus: (taskId: string, newStatus: TaskStatus) => Promise<void>;
-  submitProof: (taskId: string, photoUrl: string, note: string) => void;
+  submitProof: (
+    taskId: string,
+    photoUrl: string,
+    note: string,
+    fileMeta?: {
+      file?: File;
+      fileName?: string;
+      fileType?: string;
+      fileSize?: string;
+    }
+  ) => Promise<void>;
   approveTask: (taskId: string) => void;
   rejectTask: (taskId: string, reason: string) => void;
   toggleChecklistItem: (taskId: string, itemId: string) => Promise<boolean>;
@@ -1695,33 +1705,60 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     [tasks, currentUser, getUserById, addToast]
   );
 
-  // Submit Proof
+  // ========================================================
+  // TASK INTEGRATION: SUBMIT PROOF WITH LOCAL FILE PERSISTENCE
+  // ========================================================
   const submitProof = useCallback(
-    (taskId: string, photoUrl: string, note: string) => {
+    async (
+      taskId: string,
+      photoUrl: string,
+      note: string,
+      fileMeta?: {
+        file?: File;
+        fileName?: string;
+        fileType?: string;
+        fileSize?: string;
+      }
+    ) => {
       const task = tasks.find((t) => t.id === taskId);
       if (!task) return;
 
       const now = new Date().toISOString();
       const targetStatus: TaskStatus = task.requiresApproval ? 'under_review' : 'completed';
 
-      const proofItem = {
-        photoUrl: photoUrl || 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=600&auto=format&fit=crop&q=60',
+      const proofItem: ProofSubmission = {
+        photoUrl: photoUrl || '',
         note,
         submittedAt: now,
         submittedBy: currentUser.id,
+        fileName: fileMeta?.fileName,
+        fileSize: fileMeta?.fileSize,
+        fileType: fileMeta?.fileType,
       };
 
-      const activityLogItem = {
+      const activityLogItem: TaskActivityLog = {
         id: 'act_' + Date.now(),
         userId: currentUser.id,
         action: `Submitted completion proof & marked ${task.requiresApproval ? 'Under Review' : 'Completed'}`,
         timestamp: now,
       };
 
-      // Also persist to DMS if possible
-      dmsApi.addTaskComment(taskId, `[Completion Proof Submitted]: ${note}`).catch(() => {});
-      dmsApi.updateTaskStatus(taskId, targetStatus).catch(() => {});
+      // Create new attachment item if a file was provided
+      let newAttachments = [...task.attachments];
+      if (photoUrl || fileMeta?.fileName) {
+        const attId = 'att_' + Date.now();
+        const isImg = fileMeta?.fileType ? fileMeta.fileType.startsWith('image/') : (photoUrl.startsWith('data:image') || photoUrl.includes('images.unsplash'));
+        const attItem: TaskAttachment = {
+          id: attId,
+          name: fileMeta?.fileName || 'Completion Proof Photo',
+          type: isImg ? 'image' : 'doc',
+          url: photoUrl,
+          size: fileMeta?.fileSize || 'Image',
+        };
+        newAttachments = [attItem, ...newAttachments];
+      }
 
+      // Optimistically update local state
       setTasks((prev) =>
         prev.map((t) =>
           t.id === taskId
@@ -1729,12 +1766,43 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
                 ...t,
                 status: targetStatus,
                 proof: proofItem,
+                attachments: newAttachments,
                 updatedAt: now,
                 activityLog: [activityLogItem, ...t.activityLog],
               }
             : t
         )
       );
+
+      // Persist attachment to ERP backend
+      if (fileMeta?.file) {
+        try {
+          await dmsApi.uploadTaskAttachment(taskId, fileMeta.file, fileMeta.fileName || 'Completion Proof', false);
+        } catch (uploadErr) {
+          console.warn('Could not upload file directly, attempting direct attachment:', uploadErr);
+          if (photoUrl) {
+            dmsApi.addTaskAttachment(taskId, {
+              file_name: fileMeta.fileName || 'Completion Proof',
+              file_url: photoUrl,
+              file_type: fileMeta.fileType || 'image/jpeg',
+              description: `Proof: ${note}`,
+              is_initial: false,
+            }).catch(() => {});
+          }
+        }
+      } else if (photoUrl) {
+        dmsApi.addTaskAttachment(taskId, {
+          file_name: fileMeta?.fileName || 'Proof Image',
+          file_url: photoUrl,
+          file_type: fileMeta?.fileType || 'image/jpeg',
+          description: `Proof: ${note}`,
+          is_initial: false,
+        }).catch(() => {});
+      }
+
+      // Persist status and comment
+      dmsApi.addTaskComment(taskId, `[Completion Proof Submitted]: ${note}`).catch(() => {});
+      dmsApi.updateTaskStatus(taskId, targetStatus).catch(() => {});
 
       if (task.sourceChatId) {
         const sysMsg: ChatMessage = {

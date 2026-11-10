@@ -85,6 +85,9 @@ export interface ProofSubmission {
   note: string;
   submittedAt: string;
   submittedBy: string;
+  fileName?: string;
+  fileSize?: string;
+  fileType?: string;
 }
 
 export interface ApprovalRecord {

@@ -23,6 +23,7 @@ import {
   Lock,
   Loader2,
   User as UserIcon,
+  FileText,
 } from 'lucide-react';
 
 export const TaskDrawer: React.FC = () => {
@@ -371,14 +372,42 @@ export const TaskDrawer: React.FC = () => {
             </div>
 
             {activeTask.proof.photoUrl && (
-              <div className="rounded-xl overflow-hidden border border-purple-200 dark:border-purple-800 max-h-48 bg-black/10">
-                <img
-                  src={activeTask.proof.photoUrl}
-                  alt="Proof submission"
-                  className="w-full h-full object-cover"
-                  referrerPolicy="no-referrer"
-                />
-              </div>
+              !activeTask.proof.fileType ||
+              activeTask.proof.fileType.startsWith('image/') ||
+              activeTask.proof.photoUrl.startsWith('data:image') ||
+              activeTask.proof.photoUrl.includes('images.unsplash') ? (
+                <div className="rounded-xl overflow-hidden border border-purple-200 dark:border-purple-800 max-h-48 bg-black/10">
+                  <img
+                    src={activeTask.proof.photoUrl}
+                    alt="Proof submission"
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+              ) : (
+                <div className="flex items-center gap-2.5 p-3 rounded-xl border border-purple-200 dark:border-purple-800 bg-white dark:bg-slate-900 shadow-xs">
+                  <div className="w-9 h-9 rounded-lg bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center flex-shrink-0">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                      {activeTask.proof.fileName || 'Attached Proof Document'}
+                    </p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                      {activeTask.proof.fileSize || 'Document attachment'}
+                    </p>
+                  </div>
+                  <a
+                    href={activeTask.proof.photoUrl}
+                    download={activeTask.proof.fileName || 'proof_document'}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-2.5 py-1 text-[11px] font-semibold text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/40 rounded-lg transition-colors"
+                  >
+                    Download
+                  </a>
+                </div>
+              )
             )}
 
             <p className="text-xs text-purple-950 dark:text-purple-100 bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-purple-100 dark:border-purple-900 leading-relaxed">
