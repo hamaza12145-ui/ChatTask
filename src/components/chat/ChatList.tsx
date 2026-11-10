@@ -70,8 +70,13 @@ export const ChatList: React.FC = () => {
         if (!matchesName && !matchesMsg) return false;
       }
 
-      // Filter type
-      const unreadCount = chat.unreadCounts[currentUser.id] || 0;
+      // Filter type: safely extract unread count for current user (handles string/number IDs and undefined counts)
+      const unreadCount = Number(
+        chat.unreadCounts?.[currentUser.id] ??
+        chat.unreadCounts?.[String(currentUser.id)] ??
+        chat.unreadCounts?.[Number(currentUser.id)] ??
+        0
+      );
       if (filterType === 'unread') return unreadCount > 0;
       if (filterType === 'groups') return chat.type === 'group' || chat.type === 'channel' || chat.type === 'announcement';
       if (filterType === 'direct') return chat.type === 'direct';
@@ -243,7 +248,13 @@ export const ChatList: React.FC = () => {
           <>
             {sortedChats.map((chat) => {
               const isActive = chat.id === activeChatId;
-              const unreadCount = chat.unreadCounts[currentUser.id] || 0;
+              // Safely extract unread count for current user (handles string/number IDs and undefined counts)
+              const unreadCount = Number(
+                chat.unreadCounts?.[currentUser.id] ??
+                chat.unreadCounts?.[String(currentUser.id)] ??
+                chat.unreadCounts?.[Number(currentUser.id)] ??
+                0
+              );
               const isTyping = !!typingStatus[chat.id];
 
               // Resolve target user if direct chat
@@ -361,7 +372,8 @@ export const ChatList: React.FC = () => {
                           </>
                         )}
                       </div>
-                      {unreadCount > 0 && (
+                      {/* Unread message count badge: shown in real time when conversation has unread messages and is not active */}
+                      {unreadCount > 0 && !isActive && (
                         <span className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-[#25d366] text-white text-[11px] font-bold flex items-center justify-center leading-none shadow-xs font-sans">
                           {unreadCount}
                         </span>

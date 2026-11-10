@@ -19,9 +19,17 @@ export const BottomTabBar: React.FC = () => {
     return null;
   }
 
-  // Calculate unread chat messages for current user
+  // Calculate total unread chat messages for current user across all conversations (safe numeric/string extraction)
   const totalUnreadChats = chats.reduce(
-    (acc, chat) => acc + (chat.unreadCounts[currentUser.id] || 0),
+    (acc, chat) => {
+      const count = Number(
+        chat.unreadCounts?.[currentUser.id] ??
+        chat.unreadCounts?.[String(currentUser.id)] ??
+        chat.unreadCounts?.[Number(currentUser.id)] ??
+        0
+      );
+      return acc + count;
+    },
     0
   );
 

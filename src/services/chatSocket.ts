@@ -37,6 +37,10 @@ class ChatSocketService {
     this.isExplicitlyDisconnected = false;
 
     if (this.socket?.connected) {
+      // If already connected and userId changes/refreshes, ensure user's personal room is joined
+      if (uid) {
+        this.socket.emit('join_user', { userId: uid });
+      }
       return;
     }
 
@@ -66,6 +70,11 @@ class ChatSocketService {
 
       this.socket.on('connect', () => {
         this.isConnecting = false;
+        // Ensure user joins their private room upon connection/reconnection
+        if (this.currentUserId) {
+          this.socket?.emit('join_user', { userId: this.currentUserId });
+        }
+        // Re-join active conversation room if one is currently open
         if (this.currentChatId) {
           this.socket?.emit('join_conversation', { conversationId: this.currentChatId });
         }
@@ -93,6 +102,11 @@ class ChatSocketService {
 
       this.socket.on('conversation_updated', (payload: any) => {
         this.triggerLocalEvent('conversation_updated', payload);
+      });
+
+      // Real-time unread count updates emitted from backend ChatGateway
+      this.socket.on('unread_count_updated', (payload: any) => {
+        this.triggerLocalEvent('unread_count_updated', payload);
       });
 
       this.socket.on('conversation_saved', (conv: any) => {

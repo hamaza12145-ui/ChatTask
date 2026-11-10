@@ -28,7 +28,20 @@ export const TopBar: React.FC = () => {
     refreshDmsData,
     isLoadingDms,
     isDmsConnected,
+    chats,
+    currentUser,
   } = useAppStore();
+
+  // Calculate total unread chat messages for current user to display badge on desktop navbar
+  const totalUnreadChats = chats.reduce((acc, chat) => {
+    const count = Number(
+      chat.unreadCounts?.[currentUser.id] ??
+      chat.unreadCounts?.[String(currentUser.id)] ??
+      chat.unreadCounts?.[Number(currentUser.id)] ??
+      0
+    );
+    return acc + count;
+  }, 0);
 
   return (
     <header className="h-14 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-3 sm:px-6 flex items-center justify-between gap-4 sticky top-0 z-30 select-none">
@@ -57,6 +70,11 @@ export const TopBar: React.FC = () => {
           >
             <MessageSquare className="w-3.5 h-3.5" />
             <span>Chats</span>
+            {totalUnreadChats > 0 && (
+              <span className="min-w-[16px] h-4 px-1 rounded-full bg-[#25d366] text-white text-[10px] font-bold flex items-center justify-center tabular-nums leading-none">
+                {totalUnreadChats}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveMobileTab('tasks')}

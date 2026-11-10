@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from 'react';
 import {
   User,
   Chat,
@@ -276,6 +276,16 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     return null;
   });
 
+  /**
+   * Ref mirror for activeChatId:
+   * Keeps the latest activeChatId value readily accessible inside long-lived
+   * Socket.IO event listeners without needing to re-register listeners on every chat click.
+   */
+  const activeChatIdRef = useRef<string | null>(activeChatId);
+  useEffect(() => {
+    activeChatIdRef.current = activeChatId;
+  }, [activeChatId]);
+
   const setActiveChatId = useCallback(
     (chatId: string | null) => {
       setActiveChatIdState((prevChatId) => {
@@ -316,29 +326,43 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         });
 
         if (currentUserId) {
-          // Clear unread count for current user in local state immediately
-          setChats((prev) =>
-            prev.map((c) =>
-              c.id === chatId
-                ? {
-                    ...c,
-                    unreadCounts: {
-                      ...(c.unreadCounts || {}),
-                      [currentUserId]: 0,
-                    },
-                  }
-                : c
-            )
-          );
-          // Synchronize read receipt with backend
-          dmsApi.markConversationRead(chatId, currentUserId).catch(() => {});
+          /**
+           * Backend Read Confirmation:
+           * Clear the unread count only after the backend successfully marks
+           * the conversation as read, preventing optimistic drift if network fails.
+           */
+          dmsApi.markConversationRead(chatId, currentUserId)
+            .then(() => {
+              setChats((prev) =>
+                prev.map((c) =>
+                  c.id === chatId
+                    ? {
+                        ...c,
+                        unreadCounts: {
+                          ...(c.unreadCounts || {}),
+                          [currentUserId]: 0,
+                          [String(currentUserId)]: 0,
+                        },
+                      }
+                    : c
+                )
+              );
+            })
+            .catch((err) => {
+              console.warn('Backend markConversationRead warning:', err?.message);
+            });
         }
       }
     },
     [currentUserId]
   );
 
-  const activeChat = chats.find((c) => c.id === activeChatId) || (chats.length > 0 ? chats[0] : null);
+  /**
+   * Active Chat Resolver:
+   * Returns null when no chat is explicitly selected.
+   * NEVER fallback to `chats[0]` to ensure incoming messages do not automatically open chats.
+   */
+  const activeChat = activeChatId ? (chats.find((c) => c.id === activeChatId) || null) : null;
 
   // Messages state - Per-chat indexed store for fast retrieval and memory efficiency
   const [messagesByChatId, setMessagesByChatId] = useState<Record<string, ChatMessage[]>>(() => {
@@ -621,12 +645,17 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
         setChats(authorizedConvs);
 
-        // Ensure activeChatId points to a valid authorized conversation
+        /**
+         * Preserve Active Conversation:
+         * Keep the user's currently selected chat if it is still valid.
+         * If no chat was previously selected (null), KEEP IT NULL.
+         * Never auto-select or auto-open `authorizedConvs[0]`.
+         */
         setActiveChatIdState((prev) => {
           if (prev && authorizedConvs.some((c) => c.id === prev)) {
             return prev;
           }
-          return authorizedConvs[0]?.id || null;
+          return null;
         });
       } else {
         setChats([]);
@@ -788,19 +817,26 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     };
   }, [refreshDmsData, currentUserId, activeChatId]);
 
+  // Synchronize socket conversation room membership with activeChatId
+  useEffect(() => {
+    if (activeChatId) {
+      chatSocket.joinConversation(activeChatId);
+    }
+  }, [activeChatId]);
+
   // Real-Time WebSocket Communication (Instant Messages, Delivery/Read Receipts, Typing, Online Presence)
   useEffect(() => {
     if (!isAuthenticated || !currentUserId) return;
 
     chatSocket.connect(dmsApi.getToken(), currentUserId);
 
-    if (activeChatId) {
-      chatSocket.joinConversation(activeChatId);
+    if (activeChatIdRef.current) {
+      chatSocket.joinConversation(activeChatIdRef.current);
     }
 
     const unsubs: Array<() => void> = [];
 
-    // 1. New Message received in real-time
+    // 1. New Message received in real-time via Socket.IO
     unsubs.push(
       chatSocket.on('new_message', async (rawMsg: any) => {
         if (!rawMsg || !rawMsg.chatId) return;
@@ -822,23 +858,35 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           };
         });
 
-        // Update conversation lastMessage & unreadCounts
+        const isOtherSender = String(decryptedMsg.senderId) !== String(currentUserId);
+        const isCurrentChat = activeChatIdRef.current === msgChatId;
+
+        /**
+         * Real-time Conversation Preview & Unread Count Update:
+         * 1. Do NOT auto-open the chat or change activeChatIdState; the user remains on their current screen.
+         * 2. If the user is currently viewing this chat, unread count remains 0.
+         * 3. If the user has a different conversation open (or Chat List), increment unread count for currentUserId.
+         * 4. Messages sent by the current user never increment their own unread count.
+         */
         setChats((prev) =>
           prev.map((c) => {
             if (c.id === msgChatId) {
               const currentUnread = c.unreadCounts || {};
-              const isOtherSender = String(decryptedMsg.senderId) !== String(currentUserId);
-              const isCurrentChat = activeChatId === msgChatId;
+              const prevCount = Number(
+                currentUnread[currentUserId] ??
+                currentUnread[String(currentUserId)] ??
+                0
+              );
+              const nextCount = isOtherSender && !isCurrentChat ? prevCount + 1 : 0;
               const newUnread = {
                 ...currentUnread,
-                [currentUserId]: isOtherSender && !isCurrentChat
-                  ? (currentUnread[currentUserId] || 0) + 1
-                  : 0,
+                [currentUserId]: nextCount,
+                [String(currentUserId)]: nextCount,
               };
               return {
                 ...c,
                 lastMessage: {
-                  text: decryptedMsg.text || 'New message',
+                  text: decryptedMsg.text || (decryptedMsg.voiceDuration ? 'Voice message' : 'Shared an attachment'),
                   timestamp: decryptedMsg.timestamp,
                   senderId: decryptedMsg.senderId,
                   type: decryptedMsg.type,
@@ -852,8 +900,8 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         );
 
         // Auto receipts
-        if (String(decryptedMsg.senderId) !== String(currentUserId)) {
-          if (activeChatId === msgChatId) {
+        if (isOtherSender) {
+          if (activeChatIdRef.current === msgChatId) {
             dmsApi.markConversationRead(msgChatId, currentUserId).catch(() => {});
           } else {
             dmsApi.markConversationDelivered(msgChatId, currentUserId).catch(() => {});
@@ -914,16 +962,55 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       })
     );
 
-    // 3. Conversation Updates
+    // 3. Authoritative Unread Count Updates from Socket.IO (multi-session & multi-device sync)
+    unsubs.push(
+      chatSocket.on('unread_count_updated', (payload: any) => {
+        if (!payload?.conversationId) return;
+        const targetChatId = payload.conversationId;
+        const targetUserId = String(payload.userId || currentUserId);
+        const count = Number(payload.unreadCount ?? 0);
+
+        setChats((prev) =>
+          prev.map((c) => {
+            if (c.id === targetChatId) {
+              const isCurrentChat = activeChatIdRef.current === targetChatId;
+              // If the user has this chat actively open on this screen, keep unread at 0
+              const effectiveCount = isCurrentChat ? 0 : count;
+              return {
+                ...c,
+                unreadCounts: {
+                  ...(c.unreadCounts || {}),
+                  ...(payload.unreadCounts || {}),
+                  [targetUserId]: effectiveCount,
+                  [String(targetUserId)]: effectiveCount,
+                },
+              };
+            }
+            return c;
+          })
+        );
+      })
+    );
+
     unsubs.push(
       chatSocket.on('conversation_updated', (payload: any) => {
         if (!payload?.conversationId) return;
         setChats((prev) =>
           prev.map((c) => {
-            if (c.id === payload.conversationId && payload.lastMessage) {
+            if (c.id === payload.conversationId) {
+              const isCurrentChat = activeChatIdRef.current === payload.conversationId;
+              let updatedUnread = c.unreadCounts || {};
+              if (payload.unreadCounts) {
+                updatedUnread = { ...updatedUnread, ...payload.unreadCounts };
+                if (isCurrentChat && currentUserId) {
+                  updatedUnread[currentUserId] = 0;
+                  updatedUnread[String(currentUserId)] = 0;
+                }
+              }
               return {
                 ...c,
-                lastMessage: payload.lastMessage,
+                lastMessage: payload.lastMessage || c.lastMessage,
+                unreadCounts: updatedUnread,
               };
             }
             return c;
@@ -979,25 +1066,33 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     return () => {
       unsubs.forEach((fn) => fn());
     };
-  }, [isAuthenticated, currentUserId, activeChatId, users]);
+  }, [isAuthenticated, currentUserId, users]);
 
-  // Dynamic Read Synchronizer: Automatically mark conversation as read when opened or switched
+  /**
+   * Dynamic Read Synchronizer:
+   * Marks a conversation as read ONLY when the user explicitly clicks/opens or switches to it.
+   * Unread count is reset to 0 only after backend confirms the read operation.
+   */
   useEffect(() => {
     if (activeChatId && currentUserId) {
-      dmsApi.markConversationRead(activeChatId, currentUserId).catch(() => {});
-      setChats((prev) =>
-        prev.map((c) =>
-          c.id === activeChatId
-            ? {
-                ...c,
-                unreadCounts: {
-                  ...(c.unreadCounts || {}),
-                  [currentUserId]: 0,
-                },
-              }
-            : c
-        )
-      );
+      dmsApi.markConversationRead(activeChatId, currentUserId)
+        .then(() => {
+          setChats((prev) =>
+            prev.map((c) =>
+              c.id === activeChatId
+                ? {
+                    ...c,
+                    unreadCounts: {
+                      ...(c.unreadCounts || {}),
+                      [currentUserId]: 0,
+                      [String(currentUserId)]: 0,
+                    },
+                  }
+                : c
+            )
+          );
+        })
+        .catch(() => {});
     }
   }, [activeChatId, currentUserId]);
 

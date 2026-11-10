@@ -9,6 +9,7 @@ export const DMS_BASE_URL =
   (typeof window !== 'undefined' && (window as any).__DMS_API_URL__) ||
   (import.meta as any).env?.VITE_DMS_API_URL ||
   'http://localhost:3000';
+  'VITE_API_URL=http://192.168.100.235:3002';
 
 // Department metadata & friendly labels for all official DMS departments
 export interface DepartmentMeta {
