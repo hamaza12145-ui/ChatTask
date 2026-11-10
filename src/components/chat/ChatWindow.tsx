@@ -35,6 +35,7 @@ export const ChatWindow: React.FC = () => {
     setIsTasksInChatOpen,
     openTaskDrawer,
     tasks,
+    getTasksForChat,
     typingStatus,
     deviceView,
     hasMoreOlderMessages,
@@ -58,14 +59,9 @@ export const ChatWindow: React.FC = () => {
   const docInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Linked task and tasks associated with this chat
+  // Linked task and tasks associated with this chat (direct links, task cards, department channel, or participants)
   const linkedTask = activeChat?.linkedTaskId ? tasks.find((t) => t.id === activeChat.linkedTaskId) : null;
-  const chatTasks = tasks.filter(
-    (t) =>
-      t.sourceChatId === activeChat?.id ||
-      activeChat?.linkedTaskId === t.id ||
-      activeChat?.id === `task_chat_${t.id}`
-  );
+  const chatTasks = activeChat ? getTasksForChat(activeChat.id) : [];
 
   // Auto scroll to bottom
   const scrollToBottom = () => {

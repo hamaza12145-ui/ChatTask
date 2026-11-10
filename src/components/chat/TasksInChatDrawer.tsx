@@ -10,6 +10,7 @@ export const TasksInChatDrawer: React.FC = () => {
     isTasksInChatOpen,
     setIsTasksInChatOpen,
     tasks,
+    getTasksForChat,
     openCreateTaskModal,
     currentUser,
   } = useAppStore();
@@ -18,30 +19,8 @@ export const TasksInChatDrawer: React.FC = () => {
 
   if (!isTasksInChatOpen || !activeChat) return null;
 
-  // Find all tasks associated with this conversation
-  const chatTasks = tasks.filter((t) => {
-    // Specifically linked task
-    if (
-      activeChat.linkedTaskId === t.id ||
-      activeChat.id === `task_chat_${t.id}` ||
-      t.sourceChatId === activeChat.id
-    ) {
-      return true;
-    }
-    // In a department channel, show tasks for that department
-    if (activeChat.type === 'channel' && activeChat.department) {
-      return activeChat.department.toLowerCase() === t.department?.toLowerCase();
-    }
-    // In a direct chat, show tasks shared between participants
-    if (activeChat.type === 'direct') {
-      const isInvolved = (userId: string) =>
-        t.assigneeIds.includes(userId) ||
-        t.creatorId === userId ||
-        (t.reporterIds && t.reporterIds.includes(userId));
-      return activeChat.participantIds.some(isInvolved);
-    }
-    return false;
-  });
+  // Find all tasks associated with this conversation (using unified store resolver)
+  const chatTasks = activeChat ? getTasksForChat(activeChat.id) : [];
 
   const filteredTasks = chatTasks.filter((t) => {
     if (statusFilter === 'all') return true;

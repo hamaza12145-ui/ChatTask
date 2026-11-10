@@ -126,6 +126,7 @@ interface AppStoreContextType {
   toggleChecklistItem: (taskId: string, itemId: string) => Promise<boolean>;
   addCommentToTask: (taskId: string, text: string) => Promise<void>;
   getTaskById: (taskId: string) => Task | undefined;
+  getTasksForChat: (chatId: string) => Task[];
 
   // Modals & Panels
   isCreateTaskModalOpen: boolean;
@@ -476,6 +477,68 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [replyMessage, setReplyMessage] = useState<QuotedMessage | null>(null);
   const [taskQuoteForComposer, setTaskQuoteForComposer] = useState<Task | null>(null);
+
+  // Comprehensive tasks resolver for a chat conversation:
+  // Resolves direct links, task cards/messages, department channel tasks, and participant involvement
+  const getTasksForChat = useCallback(
+    (chatId: string): Task[] => {
+      const chat = chats.find((c) => c.id === chatId);
+      if (!chat) return [];
+
+      const msgs = messagesByChatId[chatId] || [];
+      const mentionedTaskIds = new Set<string>();
+      msgs.forEach((m) => {
+        if (m.taskId) mentionedTaskIds.add(String(m.taskId));
+        if (m.linkedTaskId) mentionedTaskIds.add(String(m.linkedTaskId));
+      });
+
+      return tasks.filter((t) => {
+        const tid = String(t.id);
+
+        // 1. Specifically linked task
+        if (
+          chat.linkedTaskId === tid ||
+          chat.id === `task_chat_${tid}` ||
+          t.sourceChatId === chat.id ||
+          (t.rawTask?.source === 'chat' && String(t.rawTask?.source_id) === chat.id)
+        ) {
+          return true;
+        }
+
+        // 2. Referenced in chat messages (task cards, quotes, system links)
+        if (mentionedTaskIds.has(tid)) {
+          return true;
+        }
+
+        // 3. In a department channel, show tasks for that department
+        if (chat.type === 'channel' && chat.department) {
+          return chat.department.toLowerCase() === t.department?.toLowerCase();
+        }
+
+        // 4. In a direct chat, show tasks shared between participants
+        if (chat.type === 'direct') {
+          const pids = chat.participantIds?.map(String) || [];
+          const isAssigneeInChat = t.assigneeIds?.some((uid) => pids.includes(String(uid)));
+          const isCreatorInChat = pids.includes(String(t.creatorId));
+          return isAssigneeInChat || isCreatorInChat;
+        }
+
+        // 5. In a group chat, show tasks for this group's department or involving participants
+        if (chat.type === 'group') {
+          if (chat.department && t.department && chat.department.toLowerCase() === t.department.toLowerCase()) {
+            return true;
+          }
+          const pids = chat.participantIds?.map(String) || [];
+          const isAssigneeInChat = t.assigneeIds?.some((uid) => pids.includes(String(uid)));
+          const isCreatorInChat = pids.includes(String(t.creatorId));
+          return isAssigneeInChat || isCreatorInChat;
+        }
+
+        return false;
+      });
+    },
+    [chats, messagesByChatId, tasks]
+  );
 
   // Typing simulator state
   const [typingStatus, setTypingStatus] = useState<Record<string, string>>({});
@@ -2407,6 +2470,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         toggleChecklistItem,
         addCommentToTask,
         getTaskById,
+        getTasksForChat,
         isCreateTaskModalOpen,
         taskModalInitialData,
         openCreateTaskModal,
