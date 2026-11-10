@@ -5,11 +5,47 @@
 
 import { User, Task, TaskStatus, TaskPriority, Department, TaskComment, TaskActivityLog, Chat, ChatMessage, AppNotification } from '../types';
 
-export const DMS_BASE_URL =
-  (typeof window !== 'undefined' && (window as any).__DMS_API_URL__) ||
-  (import.meta as any).env?.VITE_DMS_API_URL ||
-  'http://localhost:3000';
-  'VITE_API_URL=http://192.168.100.235:3002';
+/**
+ * Dynamically resolves the DMS/ERP backend URL.
+ * Supports accessing from localhost, local LAN IPs (e.g. http://192.168.100.235:3002),
+ * or remote hostnames without hardcoding or failing on other devices.
+ */
+export const getDmsBaseUrl = (): string => {
+  if (typeof window !== 'undefined' && (window as any).__DMS_API_URL__) {
+    return (window as any).__DMS_API_URL__;
+  }
+
+  const envUrl = (import.meta as any).env?.VITE_DMS_API_URL || (import.meta as any).env?.VITE_API_URL;
+
+  if (typeof window !== 'undefined' && window.location) {
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol || 'http:';
+
+    // When accessed from another device/PC on the LAN (e.g., 192.168.100.235:3002),
+    // if the envUrl is unset or set to 'localhost', automatically route to the host IP on port 3000
+    // so the other device connects to this machine's backend rather than its own localhost.
+    const isClientRemote = hostname !== 'localhost' && hostname !== '127.0.0.1';
+    const isEnvLocalhost = !envUrl || envUrl.includes('localhost') || envUrl.includes('127.0.0.1');
+
+    if (isClientRemote && isEnvLocalhost) {
+      return `${protocol}//${hostname}:3000`;
+    }
+  }
+
+  if (envUrl) {
+    return envUrl.replace(/\/$/, '');
+  }
+
+  if (typeof window !== 'undefined' && window.location) {
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol || 'http:';
+    return `${protocol}//${hostname}:3000`;
+  }
+
+  return 'http://localhost:3000';
+};
+
+export const DMS_BASE_URL = getDmsBaseUrl();
 
 // Department metadata & friendly labels for all official DMS departments
 export interface DepartmentMeta {
@@ -696,7 +732,7 @@ class DmsApiService {
   async logout(): Promise<void> {
     try {
       if (this.token) {
-        await fetch(`${DMS_BASE_URL}/auth/logout`, {
+        await fetch(`${getDmsBaseUrl()}/auth/logout`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -722,7 +758,7 @@ class DmsApiService {
     if (!password) {
       throw new Error('Password is required');
     }
-    const response = await fetch(`${DMS_BASE_URL}/auth/login`, {
+    const response = await fetch(`${getDmsBaseUrl()}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
@@ -785,7 +821,7 @@ class DmsApiService {
       headers['Content-Type'] = 'application/json';
     }
 
-    let url = endpoint.startsWith('http') ? endpoint : `${DMS_BASE_URL}${endpoint}`;
+    let url = endpoint.startsWith('http') ? endpoint : `${getDmsBaseUrl()}${endpoint}`;
     let response = await fetch(url, { ...options, headers });
 
     // Handle session expiration

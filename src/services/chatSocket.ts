@@ -1,5 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import { ChatMessage } from '../types';
+import { getDmsBaseUrl } from './dmsApi';
 
 export type SocketEventHandler = (...args: any[]) => void;
 
@@ -12,20 +13,7 @@ class ChatSocketService {
   private isExplicitlyDisconnected: boolean = false;
 
   private getSocketUrl(): string {
-    const custom = (import.meta as any).env?.VITE_DMS_API_URL;
-    if (custom) {
-      try {
-        const parsed = new URL(custom);
-        return `${parsed.protocol}//${parsed.host}`;
-      } catch {
-        return custom.replace(/\/api$/, '').replace(/\/api\/$/, '');
-      }
-    }
-    if (typeof window !== 'undefined') {
-      const hostname = window.location.hostname;
-      return `http://${hostname}:3000`;
-    }
-    return 'http://localhost:3000';
+    return getDmsBaseUrl();
   }
 
   public connect(token?: string, userId?: string): void {
