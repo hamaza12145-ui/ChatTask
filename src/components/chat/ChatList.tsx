@@ -31,6 +31,8 @@ export const ChatList: React.FC = () => {
     setIsNewChatModalOpen,
     createChat,
     typingStatus,
+    isLoadingDms,
+    isInitialSyncDone,
   } = useAppStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -267,7 +269,19 @@ export const ChatList: React.FC = () => {
 
       {/* Main Conversation List or Department Directory */}
       <div className="flex-1 overflow-y-auto divide-y divide-slate-100/60 dark:divide-slate-800/60 p-2">
-        {showQuickDepts || filterType === 'departments' ? (
+        {!isInitialSyncDone && isLoadingDms ? (
+          <div className="p-3 space-y-3">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex items-center gap-3 animate-pulse">
+                <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-800" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-3.5 bg-slate-200 dark:bg-slate-800 rounded w-2/3" />
+                  <div className="h-2.5 bg-slate-100 dark:bg-slate-800/60 rounded w-5/6" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : showQuickDepts || filterType === 'departments' ? (
           <div className="p-1">
             <DepartmentDirectory />
           </div>

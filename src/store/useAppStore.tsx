@@ -37,6 +37,7 @@ interface AppStoreContextType {
   isLoadingDms: boolean;
   isDmsConnected: boolean;
   isLiveSyncing: boolean;
+  isInitialSyncDone: boolean;
   lastSyncTimestamp: number | null;
   refreshDmsData: () => Promise<void>;
 
@@ -46,6 +47,7 @@ interface AppStoreContextType {
   activeChat: Chat | null;
   setActiveChatId: (chatId: string | null) => void;
   createChat: (data: { name: string; type: 'direct' | 'group' | 'channel'; participantIds: string[]; department?: Department }) => string;
+  deleteChat: (chatId: string) => Promise<boolean>;
   openTaskChat: (taskId: string) => void;
 
   // Messages
@@ -267,6 +269,9 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   const activeTask = tasks.find((t) => t.id === activeTaskId) || null;
   const getTaskById = useCallback((taskId: string) => tasks.find((t) => t.id === String(taskId)), [tasks]);
 
+  // Track authoritative initial sync state from PostgreSQL
+  const [isInitialSyncDone, setIsInitialSyncDone] = useState<boolean>(false);
+
   // Chats state - Persistent from ERP-Task database + local storage cache
   const [chats, setChats] = useState<Chat[]>(() => {
     if (typeof window !== 'undefined') {
@@ -481,7 +486,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [taskQuoteForComposer, setTaskQuoteForComposer] = useState<Task | null>(null);
 
   // Comprehensive tasks resolver for a chat conversation:
-  // Accurately resolves tasks created in this chat, shared/referenced in messages, or belonging to this department channel
+  // Accurately resolves tasks created in this chat, shared/referenced in messages, or belonging to this department channel/direct conversation
   const getTasksForChat = useCallback(
     (chatId: string): Task[] => {
       const chat = chats.find((c) => c.id === chatId);
@@ -513,16 +518,32 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         }
 
         // Check if message text specifically references this task (e.g., TASK-348)
-        const codeMatch = msgs.some(
-          (m) => m.text && (m.text.includes(`TASK-${tid}`) || (t.code && m.text.includes(t.code)))
-        );
-        if (codeMatch) {
-          return true;
+        if (tid) {
+          const codeMatch = msgs.some(
+            (m) =>
+              m.text &&
+              (m.text.includes(`TASK-${tid}`) ||
+                (Boolean(t.code) && t.code.trim() !== '' && m.text.includes(t.code)))
+          );
+          if (codeMatch) {
+            return true;
+          }
         }
 
-        // 3. In a department channel, show tasks for that department
-        if (chat.type === 'channel' && chat.department) {
+        // 3. In a department channel or department team group, show tasks for that department
+        if (chat.department && (chat.type === 'channel' || chat.type === 'group')) {
           return chat.department.toLowerCase() === t.department?.toLowerCase();
+        }
+
+        // 4. In a direct chat, show tasks directly shared between these two users (created by one, assigned to the other)
+        if (chat.type === 'direct' && Array.isArray(chat.participantIds) && chat.participantIds.length >= 2) {
+          const p0 = String(chat.participantIds[0]);
+          const p1 = String(chat.participantIds[1]);
+          const creatorStr = String(t.creatorId);
+          const isAssigned = (uid: string) => t.assigneeIds?.map(String).includes(uid);
+          if ((creatorStr === p0 && isAssigned(p1)) || (creatorStr === p1 && isAssigned(p0))) {
+            return true;
+          }
         }
 
         return false;
@@ -569,17 +590,26 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   });
 
   // Local storage synchronization effects for persistent offline-first cache
+  // PostgreSQL remains the single source of truth; cache reconciliation only runs after initial authoritative sync
   useEffect(() => {
-    if (typeof window !== 'undefined' && chats.length > 0) {
+    if (typeof window === 'undefined') return;
+    if (!isInitialSyncDone) return;
+    if (chats.length > 0) {
       localStorage.setItem('dmstask_persisted_chats', JSON.stringify(chats));
+    } else {
+      localStorage.removeItem('dmstask_persisted_chats');
     }
-  }, [chats]);
+  }, [chats, isInitialSyncDone]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && Object.keys(messagesByChatId).length > 0) {
+    if (typeof window === 'undefined') return;
+    if (!isInitialSyncDone) return;
+    if (Object.keys(messagesByChatId).length > 0) {
       localStorage.setItem('dmstask_persisted_messages_by_chat', JSON.stringify(messagesByChatId));
+    } else {
+      localStorage.removeItem('dmstask_persisted_messages_by_chat');
     }
-  }, [messagesByChatId]);
+  }, [messagesByChatId, isInitialSyncDone]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -691,7 +721,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         setTasks(fetchedTasks);
       }
 
-      if (fetchedConversations && fetchedConversations.length > 0) {
+      if (fetchedConversations) {
         const uid = String(currentUserId);
         const authorizedConvs = fetchedConversations.filter((c) => {
           if (c.type === 'direct') {
@@ -707,7 +737,34 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           return c.participantIds?.map(String).includes(uid);
         });
 
+        // PostgreSQL is single source of truth: replace cached chats atomically
         setChats(authorizedConvs);
+        if (typeof window !== 'undefined') {
+          if (authorizedConvs.length > 0) {
+            localStorage.setItem('dmstask_persisted_chats', JSON.stringify(authorizedConvs));
+          } else {
+            localStorage.removeItem('dmstask_persisted_chats');
+          }
+        }
+
+        // Prune cached messages for non-existent conversations
+        const validChatIds = new Set(authorizedConvs.map((c) => c.id));
+        setMessagesByChatId((prev) => {
+          const pruned: Record<string, ChatMessage[]> = {};
+          Object.keys(prev).forEach((cid) => {
+            if (validChatIds.has(cid)) {
+              pruned[cid] = prev[cid];
+            }
+          });
+          if (typeof window !== 'undefined') {
+            if (Object.keys(pruned).length > 0) {
+              localStorage.setItem('dmstask_persisted_messages_by_chat', JSON.stringify(pruned));
+            } else {
+              localStorage.removeItem('dmstask_persisted_messages_by_chat');
+            }
+          }
+          return pruned;
+        });
 
         /**
          * Preserve Active Conversation:
@@ -716,14 +773,22 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
          * Never auto-select or auto-open `authorizedConvs[0]`.
          */
         setActiveChatIdState((prev) => {
-          if (prev && authorizedConvs.some((c) => c.id === prev)) {
+          if (prev && validChatIds.has(prev)) {
             return prev;
+          }
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('dmstask_persisted_active_chat_id');
           }
           return null;
         });
       } else {
         setChats([]);
         setActiveChatIdState(null);
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('dmstask_persisted_chats');
+          localStorage.removeItem('dmstask_persisted_messages_by_chat');
+          localStorage.removeItem('dmstask_persisted_active_chat_id');
+        }
       }
 
       if (fetchedMessages && fetchedMessages.length > 0 && activeChatId) {
@@ -770,6 +835,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       }
     } finally {
       setIsLoadingDms(false);
+      setIsInitialSyncDone(true);
     }
   }, [currentUserId, addToast]);
 
@@ -1156,6 +1222,50 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
             );
           }
           return [{ ...conv, isDraft: false }, ...prev];
+        });
+      })
+    );
+
+    // 4. Conversation Deleted (Real-time synchronization across all tabs and devices)
+    unsubs.push(
+      chatSocket.on('conversation_deleted', (payload: any) => {
+        const delId = payload?.conversationId || (typeof payload === 'string' ? payload : null);
+        if (!delId) return;
+
+        setChats((prev) => {
+          const filtered = prev.filter((c) => c.id !== delId);
+          if (typeof window !== 'undefined') {
+            if (filtered.length > 0) {
+              localStorage.setItem('dmstask_persisted_chats', JSON.stringify(filtered));
+            } else {
+              localStorage.removeItem('dmstask_persisted_chats');
+            }
+          }
+          return filtered;
+        });
+
+        setMessagesByChatId((prev) => {
+          if (!prev[delId]) return prev;
+          const next = { ...prev };
+          delete next[delId];
+          if (typeof window !== 'undefined') {
+            if (Object.keys(next).length > 0) {
+              localStorage.setItem('dmstask_persisted_messages_by_chat', JSON.stringify(next));
+            } else {
+              localStorage.removeItem('dmstask_persisted_messages_by_chat');
+            }
+          }
+          return next;
+        });
+
+        setActiveChatIdState((prev) => {
+          if (prev === delId) {
+            if (typeof window !== 'undefined') {
+              localStorage.removeItem('dmstask_persisted_active_chat_id');
+            }
+            return null;
+          }
+          return prev;
         });
       })
     );
@@ -2328,6 +2438,54 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     [currentUser]
   );
 
+  // Delete chat conversation
+  const deleteChat = useCallback(
+    async (chatId: string): Promise<boolean> => {
+      // Optimistically remove from state and LocalStorage
+      setChats((prev) => {
+        const next = prev.filter((c) => c.id !== chatId);
+        if (typeof window !== 'undefined') {
+          if (next.length > 0) {
+            localStorage.setItem('dmstask_persisted_chats', JSON.stringify(next));
+          } else {
+            localStorage.removeItem('dmstask_persisted_chats');
+          }
+        }
+        return next;
+      });
+
+      setMessagesByChatId((prev) => {
+        const next = { ...prev };
+        delete next[chatId];
+        if (typeof window !== 'undefined') {
+          if (Object.keys(next).length > 0) {
+            localStorage.setItem('dmstask_persisted_messages_by_chat', JSON.stringify(next));
+          } else {
+            localStorage.removeItem('dmstask_persisted_messages_by_chat');
+          }
+        }
+        return next;
+      });
+
+      setActiveChatIdState((prev) => {
+        if (prev === chatId) {
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('dmstask_persisted_active_chat_id');
+          }
+          return null;
+        }
+        return prev;
+      });
+
+      const success = await dmsApi.deleteConversation(chatId);
+      if (success) {
+        addToast('Conversation deleted', 'info');
+      }
+      return success;
+    },
+    [addToast]
+  );
+
   // Open or create a discussion chat dedicated to a specific DMS task
   const openTaskChat = useCallback(
     (taskId: string) => {
@@ -2424,6 +2582,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         isLoadingDms,
         isDmsConnected,
         isLiveSyncing,
+        isInitialSyncDone,
         lastSyncTimestamp,
         refreshDmsData,
         chats,
@@ -2431,6 +2590,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         activeChat,
         setActiveChatId,
         createChat,
+        deleteChat,
         openTaskChat,
         messages,
         chatMessages,

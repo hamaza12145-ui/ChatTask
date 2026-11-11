@@ -101,6 +101,10 @@ class ChatSocketService {
         this.triggerLocalEvent('conversation_saved', conv);
       });
 
+      this.socket.on('conversation_deleted', (payload: any) => {
+        this.triggerLocalEvent('conversation_deleted', payload);
+      });
+
       this.socket.on('typing_indicator', (payload: any) => {
         this.triggerLocalEvent('typing_indicator', payload);
       });

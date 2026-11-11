@@ -11,6 +11,7 @@ import {
   ListTodo,
   ExternalLink,
   Lock,
+  Trash2,
 } from 'lucide-react';
 
 export const GroupInfoDrawer: React.FC = () => {
@@ -25,11 +26,28 @@ export const GroupInfoDrawer: React.FC = () => {
     setActiveChatId,
     chats,
     getTasksForChat,
+    deleteChat,
   } = useAppStore();
 
   const [activeTab, setActiveTab] = useState<'members' | 'tasks' | 'media'>('members');
+  const [isDeleting, setIsDeleting] = useState(false);
 
   if (!isGroupInfoOpen || !activeChat) return null;
+
+  const handleDelete = async () => {
+    if (!window.confirm(`Are you sure you want to delete "${activeChat.name}"? This will permanently remove it.`)) {
+      return;
+    }
+    try {
+      setIsDeleting(true);
+      const ok = await deleteChat(activeChat.id);
+      if (ok) {
+        setIsGroupInfoOpen(false);
+      }
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // Tasks created or shared in this chat
   const chatTasks = activeChat ? getTasksForChat(activeChat.id) : [];
@@ -233,6 +251,20 @@ export const GroupInfoDrawer: React.FC = () => {
                   );
                 })
               )}
+            </div>
+          )}
+
+          {/* Delete Conversation action for non-permanent channels */}
+          {activeChat.type !== 'channel' && (
+            <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+              <button
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50/60 dark:bg-rose-950/30 hover:bg-rose-100/80 dark:hover:bg-rose-900/50 rounded-xl border border-rose-200/80 dark:border-rose-900/50 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isDeleting ? 'Deleting...' : 'Delete Conversation'}</span>
+              </button>
             </div>
           )}
         </div>

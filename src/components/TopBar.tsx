@@ -90,11 +90,9 @@ export const TopBar: React.FC = () => {
           >
             <CheckSquare className="w-3.5 h-3.5" />
             <span>Tasks</span>
-            {totalTasksCount > 0 && (
-              <span className="min-w-[16px] h-4 px-1 rounded-full bg-indigo-600 dark:bg-indigo-500 text-white text-[10px] font-bold flex items-center justify-center tabular-nums leading-none">
-                {totalTasksCount}
-              </span>
-            )}
+            <span className="min-w-[16px] h-4 px-1 rounded-full bg-indigo-600 dark:bg-indigo-500 text-white text-[10px] font-bold flex items-center justify-center tabular-nums leading-none">
+              {totalTasksCount}
+            </span>
           </button>
           <button
             onClick={() => setActiveMobileTab('notifications')}

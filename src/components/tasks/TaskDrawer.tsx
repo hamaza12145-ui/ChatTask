@@ -174,27 +174,25 @@ export const TaskDrawer: React.FC = () => {
         <div>
           <div className="flex items-center gap-2 mb-2">
             <span
-              className={`px-2 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wider ${
-                activeTask.priority === 'urgent'
+              className={`px-2 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wider ${activeTask.priority === 'urgent'
                   ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300'
                   : activeTask.priority === 'high'
-                  ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
-                  : 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300'
-              }`}
+                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
+                    : 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300'
+                }`}
             >
               {activeTask.priority} priority
             </span>
 
             <span
-              className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
-                activeTask.status === 'completed'
+              className={`px-2 py-0.5 rounded text-[11px] font-semibold ${activeTask.status === 'completed'
                   ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
                   : activeTask.status === 'under_review'
-                  ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
-                  : activeTask.status === 'in_progress'
-                  ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300'
-                  : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-              }`}
+                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
+                    : activeTask.status === 'in_progress'
+                      ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300'
+                      : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                }`}
             >
               {activeTask.status.replace('_', ' ')}
             </span>
@@ -339,8 +337,8 @@ export const TaskDrawer: React.FC = () => {
                     {activeTask.requiresApproval
                       ? 'Submit for Approval'
                       : activeTask.proofRequired
-                      ? 'Submit Proof & Complete'
-                      : 'Mark Done'}
+                        ? 'Submit Proof & Complete'
+                        : 'Mark Done'}
                   </span>
                 </button>
               )}
@@ -373,9 +371,9 @@ export const TaskDrawer: React.FC = () => {
 
             {activeTask.proof.photoUrl && (
               !activeTask.proof.fileType ||
-              activeTask.proof.fileType.startsWith('image/') ||
-              activeTask.proof.photoUrl.startsWith('data:image') ||
-              activeTask.proof.photoUrl.includes('images.unsplash') ? (
+                activeTask.proof.fileType.startsWith('image/') ||
+                activeTask.proof.photoUrl.startsWith('data:image') ||
+                activeTask.proof.photoUrl.includes('images.unsplash') ? (
                 <div className="rounded-xl overflow-hidden border border-purple-200 dark:border-purple-800 max-h-48 bg-black/10">
                   <img
                     src={activeTask.proof.photoUrl}
@@ -421,9 +419,8 @@ export const TaskDrawer: React.FC = () => {
           <div>
             <span className="text-slate-400 dark:text-slate-500 block mb-1">Due Date</span>
             <div
-              className={`font-semibold font-mono tabular-nums flex items-center gap-1.5 ${
-                isOverdue ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'
-              }`}
+              className={`font-semibold font-mono tabular-nums flex items-center gap-1.5 ${isOverdue ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'
+                }`}
             >
               <Calendar className="w-3.5 h-3.5" />
               <span>{formatDateTime(activeTask.dueDate)}</span>
@@ -434,9 +431,8 @@ export const TaskDrawer: React.FC = () => {
             <span className="text-slate-400 dark:text-slate-500 block mb-1">Created By</span>
             <div className="flex items-center gap-1.5 font-medium text-slate-800 dark:text-slate-200">
               <div
-                className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white ${
-                  creator ? creator.avatarBg : 'bg-slate-500'
-                }`}
+                className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white ${creator ? creator.avatarBg : 'bg-slate-500'
+                  }`}
               >
                 {creator ? creator.avatar : 'AD'}
               </div>
@@ -455,9 +451,8 @@ export const TaskDrawer: React.FC = () => {
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-medium"
                   >
                     <div
-                      className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white ${
-                        assignee ? assignee.avatarBg : 'bg-emerald-600'
-                      }`}
+                      className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white ${assignee ? assignee.avatarBg : 'bg-emerald-600'
+                        }`}
                     >
                       {assignee ? assignee.avatar : 'U'}
                     </div>
@@ -469,8 +464,8 @@ export const TaskDrawer: React.FC = () => {
 
           {activeTask.reporterIds && activeTask.reporterIds.length > 0 && (
             <div className="col-span-2">
-              <span className="text-slate-400 dark:text-slate-500 block mb-1.5">Reporting Manager / Supervisor</span>
-              <div className="flex flex-wrap gap-2">
+              {/* <span className="text-slate-400 dark:text-slate-500 block mb-1.5">Reporting Manager / Supervisor</span> */}
+              {/* <div className="flex flex-wrap gap-2">
                 {activeTask.reporterIds.map((userId) => {
                   const reporter = getUserById(userId);
                   return (
@@ -489,7 +484,7 @@ export const TaskDrawer: React.FC = () => {
                     </div>
                   );
                 })}
-              </div>
+              </div> */}
             </div>
           )}
         </div>
@@ -542,8 +537,8 @@ export const TaskDrawer: React.FC = () => {
                 const completedUser = item.completedById
                   ? getUserById(String(item.completedById))
                   : item.completedBy
-                  ? getUserById(String(item.completedBy))
-                  : null;
+                    ? getUserById(String(item.completedBy))
+                    : null;
 
                 const assignedUser = item.assignedUserId != null ? getUserById(String(item.assignedUserId)) : null;
 
@@ -558,15 +553,13 @@ export const TaskDrawer: React.FC = () => {
                         });
                       }
                     }}
-                    className={`flex items-start gap-2.5 p-2.5 rounded-lg border transition-all ${
-                      isItemDisabled
+                    className={`flex items-start gap-2.5 p-2.5 rounded-lg border transition-all ${isItemDisabled
                         ? 'cursor-not-allowed bg-slate-50/70 dark:bg-slate-800/40 border-slate-200/50 dark:border-slate-800/50 opacity-80'
                         : 'cursor-pointer hover:border-emerald-400 dark:hover:border-emerald-600 shadow-sm'
-                    } ${
-                      isChecked
+                      } ${isChecked
                         ? 'bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/50'
                         : 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700'
-                    }`}
+                      }`}
                   >
                     <div className="pt-0.5 flex-shrink-0">
                       {isTogglingThis ? (
@@ -576,10 +569,9 @@ export const TaskDrawer: React.FC = () => {
                           type="checkbox"
                           checked={isChecked}
                           disabled={isItemDisabled}
-                          onChange={() => {}}
-                          className={`rounded text-emerald-600 focus:ring-emerald-500 ${
-                            isItemDisabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
-                          }`}
+                          onChange={() => { }}
+                          className={`rounded text-emerald-600 focus:ring-emerald-500 ${isItemDisabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
+                            }`}
                         />
                       )}
                     </div>
@@ -587,11 +579,10 @@ export const TaskDrawer: React.FC = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span
-                          className={`text-xs ${
-                            isChecked
+                          className={`text-xs ${isChecked
                               ? 'line-through text-slate-400 dark:text-slate-500 font-normal'
                               : 'text-slate-800 dark:text-slate-100 font-medium'
-                          }`}
+                            }`}
                         >
                           {item.title}
                         </span>

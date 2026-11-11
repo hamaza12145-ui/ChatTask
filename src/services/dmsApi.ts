@@ -1630,12 +1630,16 @@ class DmsApiService {
   // ==========================================
 
   /**
-   * Fetch all persistent chat conversations from ERP-Task backend
+   * Fetch all persistent chat conversations from ERP-Task backend.
+   * PostgreSQL is the Single Source of Truth.
    */
-  async fetchConversations(userId?: string): Promise<Chat[]> {
+  async fetchConversations(userId?: string, noCache: boolean = true): Promise<Chat[]> {
     try {
       const activeUid = userId || this.currentUserId;
-      const endpoint = activeUid ? `/chat/conversations?userId=${activeUid}` : '/chat/conversations';
+      let endpoint = activeUid ? `/chat/conversations?userId=${activeUid}` : '/chat/conversations';
+      if (noCache) {
+        endpoint += `${endpoint.includes('?') ? '&' : '?'}nocache=true&_t=${Date.now()}`;
+      }
       const res = await this.request<{ success?: boolean; data: any[] }>(endpoint);
       const convs = res.data || [];
       return convs
@@ -1663,6 +1667,25 @@ class DmsApiService {
     } catch (err: any) {
       console.warn('Failed to fetch conversations:', err?.message);
       return [];
+    }
+  }
+
+  /**
+   * Delete a conversation from ERP-Task backend (PostgreSQL)
+   */
+  async deleteConversation(chatId: string): Promise<boolean> {
+    try {
+      await this.request(`/chat/conversations/${chatId}`, {
+        method: 'DELETE',
+      });
+      // Invalidate local in-memory cache
+      this.cachedConversations = this.cachedConversations.filter((c) => c.id !== chatId);
+      this.lastConversationsHash = '';
+      this.broadcastMutation('conversations');
+      return true;
+    } catch (err: any) {
+      console.warn('Failed to delete conversation:', err?.message);
+      return false;
     }
   }
 

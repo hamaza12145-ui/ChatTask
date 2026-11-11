@@ -48,7 +48,7 @@ export const BottomTabBar: React.FC = () => {
       id: 'tasks',
       label: 'Tasks',
       icon: CheckSquare,
-      badge: totalTasksCount > 0 ? totalTasksCount : undefined,
+      badge: totalTasksCount,
     },
     {
       id: 'notifications',
