@@ -481,7 +481,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [taskQuoteForComposer, setTaskQuoteForComposer] = useState<Task | null>(null);
 
   // Comprehensive tasks resolver for a chat conversation:
-  // Resolves direct links, task cards/messages, department channel tasks, and participant involvement
+  // Accurately resolves tasks created in this chat, shared/referenced in messages, or belonging to this department channel
   const getTasksForChat = useCallback(
     (chatId: string): Task[] => {
       const chat = chats.find((c) => c.id === chatId);
@@ -497,7 +497,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       return tasks.filter((t) => {
         const tid = String(t.id);
 
-        // 1. Specifically linked task
+        // 1. Specifically linked task or spawned from this chat
         if (
           chat.linkedTaskId === tid ||
           chat.id === `task_chat_${tid}` ||
@@ -512,28 +512,17 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           return true;
         }
 
+        // Check if message text specifically references this task (e.g., TASK-348)
+        const codeMatch = msgs.some(
+          (m) => m.text && (m.text.includes(`TASK-${tid}`) || (t.code && m.text.includes(t.code)))
+        );
+        if (codeMatch) {
+          return true;
+        }
+
         // 3. In a department channel, show tasks for that department
         if (chat.type === 'channel' && chat.department) {
           return chat.department.toLowerCase() === t.department?.toLowerCase();
-        }
-
-        // 4. In a direct chat, show tasks shared between participants
-        if (chat.type === 'direct') {
-          const pids = chat.participantIds?.map(String) || [];
-          const isAssigneeInChat = t.assigneeIds?.some((uid) => pids.includes(String(uid)));
-          const isCreatorInChat = pids.includes(String(t.creatorId));
-          return isAssigneeInChat || isCreatorInChat;
-        }
-
-        // 5. In a group chat, show tasks for this group's department or involving participants
-        if (chat.type === 'group') {
-          if (chat.department && t.department && chat.department.toLowerCase() === t.department.toLowerCase()) {
-            return true;
-          }
-          const pids = chat.participantIds?.map(String) || [];
-          const isAssigneeInChat = t.assigneeIds?.some((uid) => pids.includes(String(uid)));
-          const isCreatorInChat = pids.includes(String(t.creatorId));
-          return isAssigneeInChat || isCreatorInChat;
         }
 
         return false;

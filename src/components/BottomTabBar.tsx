@@ -34,14 +34,8 @@ export const BottomTabBar: React.FC = () => {
     0
   );
 
-  // Calculate active tasks count for current user (pending/in-progress tasks assigned to or created by user)
-  const myTasks = tasks.filter(
-    (t) =>
-      t.assigneeIds?.map(String).includes(String(currentUser.id)) ||
-      String(t.creatorId) === String(currentUser.id)
-  );
-  const myActiveTasksCount = myTasks.filter((t) => t.status !== 'completed').length;
-  const tasksBadgeCount = myActiveTasksCount > 0 ? myActiveTasksCount : tasks.filter((t) => t.status !== 'completed').length;
+  // Calculate total tasks count for Tasking module badge (matches Tasking Board total count)
+  const totalTasksCount = tasks.length;
 
   const tabs: { id: ActiveTab; label: string; icon: React.FC<{ className?: string }>; badge?: number }[] = [
     {
@@ -54,7 +48,7 @@ export const BottomTabBar: React.FC = () => {
       id: 'tasks',
       label: 'Tasks',
       icon: CheckSquare,
-      badge: tasksBadgeCount > 0 ? tasksBadgeCount : undefined,
+      badge: totalTasksCount > 0 ? totalTasksCount : undefined,
     },
     {
       id: 'notifications',

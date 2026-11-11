@@ -53,23 +53,32 @@ export const TasksInChatDrawer: React.FC = () => {
         <div className="p-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
           {(
             [
-              { id: 'all', label: 'All' },
-              { id: 'todo', label: 'To Do' },
-              { id: 'in_progress', label: 'In Progress' },
-              { id: 'under_review', label: 'Review' },
-              { id: 'completed', label: 'Done' },
+              { id: 'all' as const, label: 'All', count: chatTasks.length },
+              { id: 'todo' as const, label: 'To Do', count: chatTasks.filter((t) => t.status === 'todo').length },
+              { id: 'in_progress' as const, label: 'In Progress', count: chatTasks.filter((t) => t.status === 'in_progress').length },
+              { id: 'under_review' as const, label: 'Review', count: chatTasks.filter((t) => t.status === 'under_review').length },
+              { id: 'completed' as const, label: 'Done', count: chatTasks.filter((t) => t.status === 'completed').length },
             ] as const
           ).map((filter) => (
             <button
               key={filter.id}
               onClick={() => setStatusFilter(filter.id)}
-              className={`px-2.5 py-1 text-xs font-semibold rounded-lg whitespace-nowrap transition-colors cursor-pointer ${
+              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg whitespace-nowrap transition-colors cursor-pointer ${
                 statusFilter === filter.id
                   ? 'bg-emerald-600 text-white shadow-xs'
                   : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
-              {filter.label}
+              <span>{filter.label}</span>
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold tabular-nums leading-none ${
+                  statusFilter === filter.id
+                    ? 'bg-emerald-800 text-white'
+                    : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                {filter.count}
+              </span>
             </button>
           ))}
         </div>

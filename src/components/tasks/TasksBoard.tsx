@@ -54,14 +54,14 @@ export const TasksBoard: React.FC = () => {
     const isOverdue = new Date(task.dueDate).getTime() < now && task.status !== 'completed';
 
     if (activeFilterTab === 'my') {
-      return task.assigneeIds.includes(currentUser.id);
+      return task.assigneeIds?.map(String).includes(String(currentUser.id));
     }
     if (activeFilterTab === 'assigned_by_me') {
-      return task.creatorId === currentUser.id;
+      return String(task.creatorId) === String(currentUser.id);
     }
     if (activeFilterTab === 'team') {
-      const isTeamReport = task.assigneeIds.some((id) => currentUser.directReportIds?.includes(id));
-      const isReportedToMe = task.reporterIds && task.reporterIds.includes(currentUser.id);
+      const isTeamReport = task.assigneeIds?.some((id) => currentUser.directReportIds?.map(String).includes(String(id)));
+      const isReportedToMe = task.reporterIds && task.reporterIds.map(String).includes(String(currentUser.id));
       return isTeamReport || isReportedToMe;
     }
     if (activeFilterTab === 'overdue') {
@@ -70,17 +70,27 @@ export const TasksBoard: React.FC = () => {
     return true;
   });
 
+  // Department-scoped base tasks for accurate tab metrics
+  const deptTasks = deptFilter === 'all'
+    ? tasks
+    : tasks.filter((t) => t.department?.toLowerCase() === deptFilter.toLowerCase());
+
   // KPI Metrics counts
-  const totalTasksCount = tasks.length;
-  const myTasksCount = tasks.filter((t) => t.assigneeIds.includes(currentUser.id)).length;
-  const reviewCount = tasks.filter((t) => t.status === 'under_review').length;
-  const overdueCount = tasks.filter(
+  const totalTasksCount = deptTasks.length;
+  const myTasksCount = deptTasks.filter((t) =>
+    t.assigneeIds?.map(String).includes(String(currentUser.id))
+  ).length;
+  const createdByMeCount = deptTasks.filter((t) =>
+    String(t.creatorId) === String(currentUser.id)
+  ).length;
+  const reviewCount = deptTasks.filter((t) => t.status === 'under_review').length;
+  const overdueCount = deptTasks.filter(
     (t) => new Date(t.dueDate).getTime() < Date.now() && t.status !== 'completed'
   ).length;
-  const teamTasksCount = tasks.filter(
+  const teamTasksCount = deptTasks.filter(
     (t) =>
-      t.assigneeIds.some((id) => currentUser.directReportIds?.includes(id)) ||
-      (t.reporterIds && t.reporterIds.includes(currentUser.id))
+      t.assigneeIds?.some((id) => currentUser.directReportIds?.map(String).includes(String(id))) ||
+      (t.reporterIds && t.reporterIds.map(String).includes(String(currentUser.id)))
   ).length;
 
   const kanbanColumns: { id: TaskStatus; title: string; icon: React.FC<{ className?: string }> }[] = [
@@ -186,29 +196,38 @@ export const TasksBoard: React.FC = () => {
 
         {/* Filters and Search Strip */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
-          {/* Tabs: All, My Tasks, Assigned, Overdue */}
-          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
+          {/* Tabs: All, My Tasks, Team, Created By Me, Overdue */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
             {(
               [
-                { id: 'all', label: 'All Tasks' },
-                { id: 'my', label: 'My Tasks' },
+                { id: 'all' as const, label: 'All Tasks', count: totalTasksCount },
+                { id: 'my' as const, label: 'My Tasks', count: myTasksCount },
                 ...(currentUser.directReportIds && currentUser.directReportIds.length > 0
-                  ? [{ id: 'team' as const, label: `Team (${teamTasksCount})` }]
+                  ? [{ id: 'team' as const, label: 'Team', count: teamTasksCount }]
                   : []),
-                { id: 'assigned_by_me', label: 'Created By Me' },
-                { id: 'overdue', label: 'Overdue' },
+                { id: 'assigned_by_me' as const, label: 'Created By Me', count: createdByMeCount },
+                { id: 'overdue' as const, label: 'Overdue', count: overdueCount },
               ] as const
             ).map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveFilterTab(tab.id)}
-                className={`px-2.5 py-1 text-[11px] sm:text-xs font-semibold rounded-lg whitespace-nowrap transition-colors cursor-pointer ${
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 text-[11px] sm:text-xs font-semibold rounded-lg whitespace-nowrap transition-colors cursor-pointer ${
                   activeFilterTab === tab.id
                     ? 'bg-emerald-700 text-white dark:bg-emerald-600 dark:text-white shadow-2xs'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                 }`}
               >
-                {tab.label}
+                <span>{tab.label}</span>
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold tabular-nums leading-none ${
+                    activeFilterTab === tab.id
+                      ? 'bg-emerald-900/60 text-emerald-100 dark:bg-emerald-800/80'
+                      : 'bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  {tab.count}
+                </span>
               </button>
             ))}
           </div>

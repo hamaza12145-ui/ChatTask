@@ -24,14 +24,15 @@ export const GroupInfoDrawer: React.FC = () => {
     chatMessages,
     setActiveChatId,
     chats,
+    getTasksForChat,
   } = useAppStore();
 
   const [activeTab, setActiveTab] = useState<'members' | 'tasks' | 'media'>('members');
 
   if (!isGroupInfoOpen || !activeChat) return null;
 
-  // Tasks created in this chat
-  const chatTasks = tasks.filter((t) => t.sourceChatId === activeChat.id);
+  // Tasks created or shared in this chat
+  const chatTasks = activeChat ? getTasksForChat(activeChat.id) : [];
 
   // Shared media from chat messages
   const sharedMedia = chatMessages.filter((m) => m.attachment);

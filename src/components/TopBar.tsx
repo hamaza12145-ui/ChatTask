@@ -44,14 +44,8 @@ export const TopBar: React.FC = () => {
     return acc + count;
   }, 0);
 
-  // Calculate active tasks count for current user (pending/in-progress tasks assigned to or created by user)
-  const myTasks = tasks.filter(
-    (t) =>
-      t.assigneeIds?.map(String).includes(String(currentUser.id)) ||
-      String(t.creatorId) === String(currentUser.id)
-  );
-  const myActiveTasksCount = myTasks.filter((t) => t.status !== 'completed').length;
-  const tasksBadgeCount = myActiveTasksCount > 0 ? myActiveTasksCount : tasks.filter((t) => t.status !== 'completed').length;
+  // Calculate total tasks count for Tasking module badge (matches Tasking Board total count)
+  const totalTasksCount = tasks.length;
 
   return (
     <header className="h-14 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-3 sm:px-6 flex items-center justify-between gap-4 sticky top-0 z-30 select-none">
@@ -96,9 +90,9 @@ export const TopBar: React.FC = () => {
           >
             <CheckSquare className="w-3.5 h-3.5" />
             <span>Tasks</span>
-            {tasksBadgeCount > 0 && (
+            {totalTasksCount > 0 && (
               <span className="min-w-[16px] h-4 px-1 rounded-full bg-indigo-600 dark:bg-indigo-500 text-white text-[10px] font-bold flex items-center justify-center tabular-nums leading-none">
-                {tasksBadgeCount}
+                {totalTasksCount}
               </span>
             )}
           </button>
