@@ -72,21 +72,21 @@ export interface DepartmentMeta {
 
 const KNOWN_DEPARTMENT_LABELS: Record<string, string> = {
   admin: 'Administration',
-  store: 'Store & Inventory',
+  store: 'Store',
   procurements: 'Procurements',
   accounts_and_finance: 'Accounts & Finance',
-  program: 'Program & Operations',
+  program: 'Program',
   it: 'Information Technology',
   hr: 'Human Resources',
-  marketing: 'Marketing & PR',
+  marketing: 'Marketing',
   audio_video: 'Audio / Video',
   fund_raising: 'Fund Raising',
-  meal: 'Food & Nutrition (Meal)',
+  meal: 'Meal',
   health: 'Health & Medical',
   executive_office: 'Executive Office',
   ceo: 'CEO Office',
   internal_audit: 'Internal Audit',
-  crd: 'Corporate Resource Dev (CRD)',
+  crd: 'CRD',
   aas_lab: 'AAS Lab',
 };
 
@@ -291,7 +291,7 @@ export const formatUserDesignation = (role: string, department: string): string 
       return `${deptMeta.label} Head`;
     case 'user':
     default:
-      return `${deptMeta.label} Officer`;
+      return `${deptMeta.label} User`;
   }
 };
 
