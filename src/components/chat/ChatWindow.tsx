@@ -1,0 +1,727 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { useAppStore } from '../../store/useAppStore';
+import { MessageBubble } from './MessageBubble';
+import { Task, TaskAttachment } from '../../types';
+import {
+  ArrowLeft,
+  Info,
+  Paperclip,
+  Mic,
+  Send,
+  PlusSquare,
+  ListTodo,
+  Smile,
+  X,
+  FileText,
+  Image as ImageIcon,
+  CheckCircle,
+  Lock,
+} from 'lucide-react';
+
+export const ChatWindow: React.FC = () => {
+  const {
+    activeChat,
+    setActiveChatId,
+    chatMessages,
+    currentUser,
+    getUserById,
+    sendMessage,
+    replyMessage,
+    setReplyMessage,
+    taskQuoteForComposer,
+    setTaskQuoteForComposer,
+    openCreateTaskModal,
+    setIsGroupInfoOpen,
+    setIsTasksInChatOpen,
+    openTaskDrawer,
+    tasks,
+    getTasksForChat,
+    typingStatus,
+    deviceView,
+    hasMoreOlderMessages,
+    isLoadingOlderMessages,
+    loadOlderMessages,
+    sendTypingIndicator,
+  } = useAppStore();
+
+  const [inputText, setInputText] = useState('');
+  const [showMentionMenu, setShowMentionMenu] = useState(false);
+  const [mentionFilter, setMentionFilter] = useState('');
+  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
+  const [pendingAttachment, setPendingAttachment] = useState<TaskAttachment | null>(null);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const attachmentMenuRef = useRef<HTMLDivElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const docInputRef = useRef<HTMLInputElement>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Linked task and tasks associated with this chat (direct links, task cards, department channel, or participants)
+  const linkedTask = activeChat?.linkedTaskId ? tasks.find((t) => t.id === activeChat.linkedTaskId) : null;
+  const chatTasks = activeChat ? getTasksForChat(activeChat.id) : [];
+
+  // Auto scroll to bottom
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [chatMessages, typingStatus]);
+
+  // Handle voice recording timer
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isRecordingVoice) {
+      interval = setInterval(() => {
+        setRecordingSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setRecordingSeconds(0);
+    }
+    return () => clearInterval(interval);
+  }, [isRecordingVoice]);
+
+  // Click outside attachment menu
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (attachmentMenuRef.current && !attachmentMenuRef.current.contains(e.target as Node)) {
+        setShowAttachmentMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  if (!activeChat) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50 dark:bg-slate-950">
+        <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-900 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-4">
+          <ListTodo className="w-8 h-8" />
+        </div>
+        <h3 className="text-base font-bold text-slate-800 dark:text-slate-100 mb-1">
+          Select a Conversation
+        </h3>
+        <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm">
+          Pick a team member or group channel from the list to collaborate, share deliverables, and manage tasks.
+        </p>
+      </div>
+    );
+  }
+
+  // Check read-only permission for announcements
+  const isReadOnly = activeChat.isReadOnly && !activeChat.adminIds.includes(currentUser.id);
+
+  // Other party in 1:1 chat
+  let otherUser = null;
+  if (activeChat.type === 'direct') {
+    const otherId = activeChat.participantIds.find((id) => id !== currentUser.id) || activeChat.participantIds[0];
+    otherUser = getUserById(otherId);
+  }
+
+  // Handle input change & mention trigger
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setInputText(value);
+
+    // Emit real-time typing indicator over WebSocket
+    if (activeChat) {
+      sendTypingIndicator(activeChat.id, value.trim().length > 0);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        if (activeChat) sendTypingIndicator(activeChat.id, false);
+      }, 2500);
+    }
+
+    // Check if cursor is right after an '@'
+    const lastAtPos = value.lastIndexOf('@');
+    if (lastAtPos !== -1 && lastAtPos === value.length - 1) {
+      setShowMentionMenu(true);
+      setMentionFilter('');
+    } else if (lastAtPos !== -1 && !value.slice(lastAtPos).includes(' ')) {
+      setShowMentionMenu(true);
+      setMentionFilter(value.slice(lastAtPos + 1).toLowerCase());
+    } else {
+      setShowMentionMenu(false);
+    }
+  };
+
+  const handleSelectMention = (userName: string) => {
+    const lastAtPos = inputText.lastIndexOf('@');
+    const newText = inputText.substring(0, lastAtPos) + `@${userName} `;
+    setInputText(newText);
+    setShowMentionMenu(false);
+    inputRef.current?.focus();
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, category: 'image' | 'doc') => {
+    const file = e.target.files?.[0];
+    if (!file || !activeChat) return;
+
+    // Reset input so the same file can be selected again
+    e.target.value = '';
+
+    let attType: 'image' | 'doc' | 'pdf' | 'spreadsheet' = 'doc';
+    if (file.type.startsWith('image/')) {
+      attType = 'image';
+    } else if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      attType = 'pdf';
+    } else if (
+      file.name.toLowerCase().endsWith('.xls') ||
+      file.name.toLowerCase().endsWith('.xlsx') ||
+      file.name.toLowerCase().endsWith('.csv')
+    ) {
+      attType = 'spreadsheet';
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const resultUrl = reader.result as string;
+      setPendingAttachment({
+        id: 'att_' + Date.now(),
+        name: file.name,
+        type: attType,
+        url: resultUrl,
+        size: formatFileSize(file.size),
+      });
+      setShowAttachmentMenu(false);
+      inputRef.current?.focus();
+    };
+
+    reader.onerror = () => {
+      const objectUrl = URL.createObjectURL(file);
+      setPendingAttachment({
+        id: 'att_' + Date.now(),
+        name: file.name,
+        type: attType,
+        url: objectUrl,
+        size: formatFileSize(file.size),
+      });
+      setShowAttachmentMenu(false);
+      inputRef.current?.focus();
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.indexOf('image') !== -1) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          const reader = new FileReader();
+          reader.onload = () => {
+            setPendingAttachment({
+              id: 'att_' + Date.now(),
+              name: file.name || `Pasted_Image_${new Date().toISOString().slice(0, 10)}.png`,
+              type: 'image',
+              url: reader.result as string,
+              size: formatFileSize(file.size),
+            });
+          };
+          reader.readAsDataURL(file);
+          break;
+        }
+      }
+    }
+  };
+
+  const handleSendMessage = () => {
+    if ((!inputText.trim() && !pendingAttachment) || !activeChat) return;
+
+    if (activeChat) {
+      sendTypingIndicator(activeChat.id, false);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    }
+
+    let fullText = inputText.trim();
+    if (taskQuoteForComposer) {
+      fullText = `[Ref: ${taskQuoteForComposer.code} - ${taskQuoteForComposer.title}]\n${fullText}`;
+    }
+
+    if (!fullText && pendingAttachment) {
+      fullText = pendingAttachment.type === 'image'
+        ? `Attached photo: ${pendingAttachment.name}`
+        : `Attached document: ${pendingAttachment.name}`;
+    }
+
+    sendMessage(activeChat.id, fullText, {
+      replyTo: replyMessage || undefined,
+      attachment: pendingAttachment || undefined,
+    });
+
+    setInputText('');
+    setPendingAttachment(null);
+    setReplyMessage(null);
+    setTaskQuoteForComposer(null);
+    setShowMentionMenu(false);
+  };
+
+  const handleSendVoiceNote = () => {
+    setIsRecordingVoice(false);
+    const duration = Math.max(3, recordingSeconds);
+    sendMessage(activeChat.id, '', {
+      voiceDuration: duration,
+    });
+  };
+
+  const isCurrentChatTyping = typingStatus[activeChat.id];
+
+  // Group messages by date for date dividers
+  const renderMessagesWithDates = () => {
+    let lastDateStr = '';
+    return chatMessages.map((msg) => {
+      const msgDate = new Date(msg.timestamp);
+      const today = new Date();
+      const yesterday = new Date();
+      yesterday.setDate(today.getDate() - 1);
+
+      let dateLabel = msgDate.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+      if (msgDate.toDateString() === today.toDateString()) {
+        dateLabel = 'Today';
+      } else if (msgDate.toDateString() === yesterday.toDateString()) {
+        dateLabel = 'Yesterday';
+      }
+
+      const showDateDivider = dateLabel !== lastDateStr;
+      lastDateStr = dateLabel;
+
+      return (
+        <React.Fragment key={msg.id}>
+          {showDateDivider && (
+            <div className="flex items-center justify-center my-3 select-none">
+              <span className="px-3 py-0.5 rounded-full bg-slate-200/70 dark:bg-slate-800/80 text-[10px] font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
+                {dateLabel}
+              </span>
+            </div>
+          )}
+          <MessageBubble message={msg} />
+        </React.Fragment>
+      );
+    });
+  };
+
+  return (
+    <div className="flex-1 flex flex-col h-full bg-[#efeae2]/85 dark:bg-[#0b141a] relative min-w-0 overflow-hidden">
+      {/* Top Chat Header */}
+      <div className="h-14 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-3 sm:px-4 flex items-center justify-between gap-2 shrink-0 z-10 select-none">
+        <div className="flex items-center gap-2 min-w-0">
+          {/* Back button for mobile & mobile simulator */}
+          <button
+            onClick={() => setActiveChatId(null)}
+            className={`${
+              deviceView === 'desktop' ? 'hidden' : 'flex lg:hidden'
+            } items-center gap-1 p-1.5 -ml-1 text-slate-700 hover:text-slate-900 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors`}
+            aria-label="Back to chat list"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+
+          {/* Avatar */}
+          <div
+            onClick={() => setIsGroupInfoOpen(true)}
+            className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-white text-xs cursor-pointer shrink-0 ${
+              activeChat.avatarBg || 'bg-slate-600'
+            }`}
+          >
+            {activeChat.type === 'direct' && otherUser ? otherUser.avatar : activeChat.name[0]}
+          </div>
+
+          {/* Title & subtitle */}
+          <div
+            onClick={() => setIsGroupInfoOpen(true)}
+            className="min-w-0 cursor-pointer"
+          >
+            <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 truncate flex items-center gap-1.5">
+              <span>{activeChat.type === 'direct' && otherUser ? otherUser.name : activeChat.name}</span>
+            </h3>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+              {isCurrentChatTyping ? (
+                <span className="text-indigo-600 dark:text-indigo-400 font-medium italic animate-pulse">
+                  {isCurrentChatTyping} is typing...
+                </span>
+              ) : activeChat.type === 'direct' && otherUser ? (
+                `${otherUser.designation} · ${otherUser.status}`
+              ) : (
+                `${activeChat.participantIds.length} members · ${activeChat.department || 'Operations'}`
+              )}
+            </p>
+          </div>
+        </div>
+
+        {/* Right Action Buttons */}
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          {/* "Tasks in this chat" Button (Requirement #6) */}
+          <button
+            onClick={() => setIsTasksInChatOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800/80 bg-indigo-50/70 hover:bg-indigo-100/80 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 text-xs font-semibold transition-all shadow-2xs"
+            title="View tasks created in this chat"
+          >
+            <ListTodo className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            <span className="hidden sm:inline">Tasks</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-indigo-600 text-white text-[10px] font-bold tabular-nums">
+              {chatTasks.length}
+            </span>
+          </button>
+
+          {/* Group Info Trigger */}
+          <button
+            onClick={() => setIsGroupInfoOpen(true)}
+            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            title="Chat info & members"
+          >
+            <Info className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+            {/* Linked Task Banner if chat is dedicated to a DMS task */}
+      {linkedTask && (
+        <div className="px-4 py-2 bg-indigo-50/90 dark:bg-indigo-950/40 border-b border-indigo-200/70 dark:border-indigo-900/50 flex items-center justify-between text-xs shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/80 px-2 py-0.5 rounded text-[11px] shrink-0">
+              {linkedTask.code}
+            </span>
+            <span className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+              {linkedTask.title}
+            </span>
+            <span className="text-[10px] text-slate-500 uppercase font-bold px-1.5 py-0.5 rounded bg-slate-200/60 dark:bg-slate-800 shrink-0">
+              {linkedTask.status.replace('_', ' ')}
+            </span>
+          </div>
+          <button
+            onClick={() => openTaskDrawer(linkedTask.id)}
+            className="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline text-[11px] shrink-0 ml-2 cursor-pointer"
+          >
+            View Task Details &rarr;
+          </button>
+        </div>
+      )}
+      {/* Messages Scroll Area */}
+      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-1">
+        {/* End-to-End Encryption Security Notice Banner */}
+        <div className="flex items-center justify-center my-2 select-none">
+          <div className="max-w-md mx-auto px-3.5 py-1.5 rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/40 text-[11px] text-amber-800 dark:text-amber-300 flex items-center gap-2 text-center shadow-2xs">
+            <Lock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>
+              Messages and files are end-to-end encrypted.
+            </span>
+          </div>
+        </div>
+
+        {/* Pagination: Load older message history */}
+        {activeChat && hasMoreOlderMessages[activeChat.id] !== false && chatMessages.length >= 20 && (
+          <div className="flex justify-center my-2">
+            <button
+              onClick={() => loadOlderMessages(activeChat.id)}
+              disabled={isLoadingOlderMessages}
+              className="text-xs px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              {isLoadingOlderMessages ? (
+                <>
+                  <span className="w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                  <span>Loading older messages...</span>
+                </>
+              ) : (
+                <span>Load older messages</span>
+              )}
+            </button>
+          </div>
+        )}
+        {chatMessages.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400 text-xs">
+            <p>No messages yet in this conversation.</p>
+            <p className="mt-1">Say hello or create a task using the buttons below!</p>
+          </div>
+        ) : (
+          renderMessagesWithDates()
+        )}
+
+        {/* Live typing indicator bubble */}
+        {isCurrentChatTyping && (
+          <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs py-1 px-2 animate-in fade-in">
+            <div className="flex gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" />
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce [animation-delay:0.2s]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce [animation-delay:0.4s]" />
+            </div>
+            <span className="text-[11px] italic">{isCurrentChatTyping} is typing...</span>
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Composer Area */}
+      <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 sm:p-3 relative">
+        {/* Reply Preview Bar */}
+        {replyMessage && (
+          <div className="mb-2 p-2 rounded-xl bg-slate-100 dark:bg-slate-800 border-l-3 border-indigo-600 flex items-center justify-between text-xs animate-in slide-in-from-bottom-2 duration-150">
+            <div className="min-w-0 pr-2">
+              <span className="font-semibold text-indigo-600 dark:text-indigo-400">
+                Replying to {replyMessage.senderName}
+              </span>
+              <p className="text-slate-600 dark:text-slate-300 truncate text-[11px]">
+                {replyMessage.text}
+              </p>
+            </div>
+            <button
+              onClick={() => setReplyMessage(null)}
+              className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Task Quote Bar (From "Discuss in chat") */}
+        {taskQuoteForComposer && (
+          <div className="mb-2 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-between text-xs animate-in slide-in-from-bottom-2 duration-150">
+            <div className="flex items-center gap-2 min-w-0 pr-2">
+              <ListTodo className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+              <div className="min-w-0">
+                <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300">
+                  {taskQuoteForComposer.code}:
+                </span>{' '}
+                <span className="text-slate-800 dark:text-slate-200 font-medium truncate">
+                  {taskQuoteForComposer.title}
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={() => setTaskQuoteForComposer(null)}
+              className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Pending Attachment Preview Bar */}
+        {pendingAttachment && (
+          <div className="mb-2 p-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs animate-in slide-in-from-bottom-2 duration-150">
+            <div className="flex items-center gap-2.5 min-w-0 pr-2">
+              {pendingAttachment.type === 'image' ? (
+                <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700 bg-slate-200 dark:bg-slate-900">
+                  <img
+                    src={pendingAttachment.url}
+                    alt={pendingAttachment.name}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              ) : (
+                <div className="w-10 h-10 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+                  <FileText className="w-5 h-5" />
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="font-semibold text-slate-800 dark:text-slate-100 truncate text-xs">
+                  {pendingAttachment.name}
+                </p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                  {pendingAttachment.size} • Ready to send
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setPendingAttachment(null)}
+              className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+              title="Remove attachment"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* @Mentions Autocomplete Popup */}
+        {showMentionMenu && (
+          <div className="absolute bottom-full left-4 mb-2 w-64 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-800 p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 max-h-48 overflow-y-auto">
+            <div className="px-2 py-1 text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase">
+              Mention Team Member
+            </div>
+            {activeChat.participantIds
+              .map((id) => getUserById(id))
+              .filter((u): u is NonNullable<typeof u> => Boolean(u))
+              .filter((u) => u.name.toLowerCase().includes(mentionFilter))
+              .map((u) => (
+                <button
+                  key={u.id}
+                  onClick={() => handleSelectMention(u.name.split(' ')[0])}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-left rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100 transition-colors"
+                >
+                  <div
+                    className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0 ${u.avatarBg}`}
+                  >
+                    {u.avatar}
+                  </div>
+                  <span className="font-medium truncate">{u.name}</span>
+                  <span className="text-[10px] text-slate-400 ml-auto truncate max-w-[120px]" title={u.designation}>
+                    {u.designation}
+                  </span>
+                </button>
+              ))}
+          </div>
+        )}
+
+        {/* Read-only announcement banner or active input */}
+        {isReadOnly ? (
+          <div className="p-3 text-center text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 rounded-xl">
+            Only channel administrators can post announcements.
+          </div>
+        ) : isRecordingVoice ? (
+          <div className="flex items-center justify-between p-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800">
+            <div className="flex items-center gap-2">
+              <span className="w-3 h-3 rounded-full bg-rose-600 animate-ping" />
+              <span className="text-xs font-semibold text-rose-700 dark:text-rose-300">
+                Recording audio note... {recordingSeconds}s
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsRecordingVoice(false)}
+                className="px-2 py-1 text-xs text-slate-600 hover:text-slate-800 dark:text-slate-400"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSendVoiceNote}
+                className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Send</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 sm:gap-2">
+            {/* Core Feature #2: "+ Task" button right in composer */}
+            <button
+              onClick={() =>
+                openCreateTaskModal({
+                  sourceChatId: activeChat.id,
+                  department: activeChat.department || currentUser.department,
+                  assigneeIds: activeChat.participantIds.filter((id) => id !== currentUser.id),
+                })
+              }
+              className="flex items-center gap-1 px-2.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 text-indigo-600 dark:text-indigo-400 text-xs font-semibold transition-colors shrink-0"
+              title="Create task in this chat"
+            >
+              <PlusSquare className="w-4 h-4" />
+              <span className="hidden sm:inline">+ Task</span>
+            </button>
+
+            {/* Attachment Button */}
+            <div className="relative" ref={attachmentMenuRef}>
+              <button
+                onClick={() => setShowAttachmentMenu(!showAttachmentMenu)}
+                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors shrink-0"
+                title="Attach file or photo"
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+
+              {/* Hidden file inputs for real device file selection */}
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => handleFileSelect(e, 'image')}
+              />
+              <input
+                ref={docInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,.rar,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                className="hidden"
+                onChange={(e) => handleFileSelect(e, 'doc')}
+              />
+
+              {/* Attachment popover */}
+              {showAttachmentMenu && (
+                <div className="absolute bottom-full left-0 mb-2 w-52 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-800 p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 text-xs">
+                  <button
+                    onClick={() => {
+                      setShowAttachmentMenu(false);
+                      photoInputRef.current?.click();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors"
+                  >
+                    <ImageIcon className="w-4 h-4 text-emerald-500" />
+                    <span className="font-medium">Attach Photo</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowAttachmentMenu(false);
+                      docInputRef.current?.click();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors"
+                  >
+                    <FileText className="w-4 h-4 text-indigo-500" />
+                    <span className="font-medium">Attach Document</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Input Box */}
+            <div className="flex-1 relative">
+              <input
+                ref={inputRef}
+                type="text"
+                placeholder={pendingAttachment ? "Add a message or caption (optional)..." : "Type a message or use @ to mention..."}
+                value={inputText}
+                onChange={handleInputChange}
+                onPaste={handlePaste}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
+                className="w-full px-3.5 py-2 text-xs sm:text-sm rounded-xl bg-slate-100 dark:bg-slate-800 border border-transparent focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition-all"
+              />
+            </div>
+
+            {/* Voice note simulation trigger */}
+            {!inputText.trim() && !pendingAttachment && (
+              <button
+                onClick={() => setIsRecordingVoice(true)}
+                className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors shrink-0"
+                title="Hold or click to record voice note"
+              >
+                <Mic className="w-4 h-4" />
+              </button>
+            )}
+
+            {/* Send Button */}
+            <button
+              onClick={handleSendMessage}
+              disabled={!inputText.trim() && !pendingAttachment}
+              className="p-2 sm:px-3.5 sm:py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:hover:bg-indigo-600 text-white font-semibold text-xs transition-colors flex items-center gap-1.5 shrink-0 shadow-xs"
+              title="Send message"
+            >
+              <Send className="w-4 h-4" />
+              <span className="hidden sm:inline">Send</span>
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
