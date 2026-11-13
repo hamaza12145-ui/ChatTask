@@ -42,13 +42,14 @@ class ChatSocketService {
     this.isConnecting = true;
 
     try {
-      const baseUrl = this.getSocketUrl();
+      const baseUrl = this.getSocketUrl().replace(/\/$/, '');
       this.socket = io(`${baseUrl}/ws_chat`, {
-        transports: ['websocket', 'polling'],
+        transports: ['polling', 'websocket'],
         auth: {
           token: authToken,
           userId: uid,
         },
+        withCredentials: true,
         reconnection: true,
         reconnectionAttempts: Infinity,
         reconnectionDelay: 1000,
