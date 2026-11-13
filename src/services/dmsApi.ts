@@ -20,42 +20,49 @@ import {
 
 /**
  * Dynamically resolves the DMS/ERP backend URL.
- * Supports accessing from localhost, local LAN IPs (e.g. http://192.168.100.235:3002),
- * or remote hostnames without hardcoding or failing on other devices.
+ * Supports production Railway deployment (https://mtjf-erp-backend.up.railway.app),
+ * build-time environment variables, or local development fallback.
  */
 export const getDmsBaseUrl = (): string => {
+  // 1. Explicit window-injected override (if runtime injection is provided by host)
   if (typeof window !== 'undefined' && (window as any).__DMS_API_URL__) {
-    return (window as any).__DMS_API_URL__;
+    return (window as any).__DMS_API_URL__.replace(/\/$/, '');
   }
 
+  // 2. Vite build-time environment variables (VITE_DMS_API_URL or VITE_API_URL)
   const envUrl = (import.meta as any).env?.VITE_DMS_API_URL || (import.meta as any).env?.VITE_API_URL;
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
+    return envUrl.trim().replace(/\/$/, '');
+  }
 
+  // 3. Browser runtime environment inspection
   if (typeof window !== 'undefined' && window.location) {
     const hostname = window.location.hostname;
-    const protocol = window.location.protocol || 'http:';
+    const protocol = window.location.protocol || 'https:';
 
-    // When accessed from another device/PC on the LAN (e.g., 192.168.100.235:3002),
-    // if the envUrl is unset or set to 'localhost', automatically route to the host IP on port 3000
-    // so the other device connects to this machine's backend rather than its own localhost.
-    const isClientRemote = hostname !== 'localhost' && hostname !== '127.0.0.1';
-    const isEnvLocalhost = !envUrl || envUrl.includes('localhost') || envUrl.includes('127.0.0.1');
+    // Production Railway check: if hosted on chattask.up.railway.app or any Railway domain
+    if (hostname.includes('railway.app') || hostname.includes('chattask')) {
+      return 'https://mtjf-erp-backend.up.railway.app';
+    }
 
-    if (isClientRemote && isEnvLocalhost) {
+    // Local / LAN development fallback:
+    // (Localhost development endpoints - commented for production reference)
+    // When running locally in offline development, default to local port 3000
+    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+    if (isLocalhost) {
+      // return 'http://localhost:3000'; // local dev default
+      return 'https://mtjf-erp-backend.up.railway.app'; // fallback to Railway production backend
+    }
+
+    // Local network device (e.g. testing from mobile or another PC on LAN IP 192.168.x.x)
+    const isLocalSubnet = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(hostname);
+    if (isLocalSubnet) {
       return `${protocol}//${hostname}:3000`;
     }
   }
 
-  if (envUrl) {
-    return envUrl.replace(/\/$/, '');
-  }
-
-  if (typeof window !== 'undefined' && window.location) {
-    const hostname = window.location.hostname;
-    const protocol = window.location.protocol || 'http:';
-    return `${protocol}//${hostname}:3000`;
-  }
-
-  return 'http://localhost:3000';
+  // Fallback production backend URL
+  return 'https://mtjf-erp-backend.up.railway.app';
 };
 
 export const DMS_BASE_URL = getDmsBaseUrl();
@@ -774,6 +781,7 @@ class DmsApiService {
     const response = await fetch(`${getDmsBaseUrl()}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
     });
 
@@ -834,8 +842,21 @@ class DmsApiService {
       headers['Content-Type'] = 'application/json';
     }
 
-    let url = endpoint.startsWith('http') ? endpoint : `${getDmsBaseUrl()}${endpoint}`;
-    let response = await fetch(url, { ...options, headers });
+    // Route task operations through the chat module (/chat/tasks/...) so that Bearer token
+    // authentication works natively via ChatJwtGuard without requiring modifications to core ERP auth.
+    let targetEndpoint = endpoint;
+    if (endpoint.startsWith('/tasks')) {
+      targetEndpoint = `/chat${endpoint}`;
+    }
+
+    let url = targetEndpoint.startsWith('http') ? targetEndpoint : `${getDmsBaseUrl()}${targetEndpoint}`;
+    let response = await fetch(url, { ...options, headers, credentials: 'include' });
+
+    // Fallback to direct ERP endpoint if chat proxy returns 404
+    if (response.status === 404 && targetEndpoint !== endpoint) {
+      const directUrl = endpoint.startsWith('http') ? endpoint : `${getDmsBaseUrl()}${endpoint}`;
+      response = await fetch(directUrl, { ...options, headers, credentials: 'include' });
+    }
 
     // Handle session expiration
     if (response.status === 401) {
@@ -924,31 +945,31 @@ class DmsApiService {
   }
 
   /**
-   * Fetch users dynamically through APIs from the existing backend user module:
-   * D:\TASK\ERP-Task\erp_backend\src\users (user.controller.ts)
+   * Fetch users dynamically through APIs from the backend chat and user module:
+   * Prioritizes /chat/users (no strict admin permission required) with fallbacks to /users.
    */
   async fetchUsers(): Promise<User[]> {
     let dmsUsers: any[] = [];
 
-    // 1. Primary: Fetch from ERP backend users module (src/users/user.controller.ts)
+    // 1. Primary: Fetch from backend chat module (/chat/users)
     try {
-      const res = await this.request<{ data?: any[]; pagination?: any }>('/users?page=1&pageSize=200');
-      if (res && Array.isArray(res.data) && res.data.length > 0) {
-        dmsUsers = res.data;
+      const chatRes = await this.request<{ success?: boolean; data?: any[] }>('/chat/users');
+      if (chatRes && Array.isArray(chatRes.data) && chatRes.data.length > 0) {
+        dmsUsers = chatRes.data;
       }
     } catch (err: any) {
-      console.warn('Could not list users from /users:', err?.message);
+      console.warn('Could not list users from /chat/users:', err?.message);
     }
 
-    // 2. Fallback: try /chat/users
+    // 2. Fallback: try /users?page=1&pageSize=200
     if (dmsUsers.length === 0) {
       try {
-        const chatRes = await this.request<{ success?: boolean; data?: any[] }>('/chat/users');
-        if (chatRes && Array.isArray(chatRes.data) && chatRes.data.length > 0) {
-          dmsUsers = chatRes.data;
+        const res = await this.request<{ data?: any[]; pagination?: any }>('/users?page=1&pageSize=200');
+        if (res && Array.isArray(res.data) && res.data.length > 0) {
+          dmsUsers = res.data;
         }
       } catch (err: any) {
-        console.warn('Could not list users from /chat/users:', err?.message);
+        console.warn('Could not list users from /users:', err?.message);
       }
     }
 
