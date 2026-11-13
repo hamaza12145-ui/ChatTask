@@ -774,6 +774,7 @@ class DmsApiService {
     const response = await fetch(`${getDmsBaseUrl()}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
     });
 
@@ -834,8 +835,21 @@ class DmsApiService {
       headers['Content-Type'] = 'application/json';
     }
 
-    let url = endpoint.startsWith('http') ? endpoint : `${getDmsBaseUrl()}${endpoint}`;
-    let response = await fetch(url, { ...options, headers });
+    // Route task operations through the chat module (/chat/tasks/...) so that Bearer token
+    // authentication works natively via ChatJwtGuard without requiring modifications to core ERP auth.
+    let targetEndpoint = endpoint;
+    if (endpoint.startsWith('/tasks')) {
+      targetEndpoint = `/chat${endpoint}`;
+    }
+
+    let url = targetEndpoint.startsWith('http') ? targetEndpoint : `${getDmsBaseUrl()}${targetEndpoint}`;
+    let response = await fetch(url, { ...options, headers, credentials: 'include' });
+
+    // Fallback to direct ERP endpoint if chat proxy returns 404
+    if (response.status === 404 && targetEndpoint !== endpoint) {
+      const directUrl = endpoint.startsWith('http') ? endpoint : `${getDmsBaseUrl()}${endpoint}`;
+      response = await fetch(directUrl, { ...options, headers, credentials: 'include' });
+    }
 
     // Handle session expiration
     if (response.status === 401) {
@@ -924,31 +938,31 @@ class DmsApiService {
   }
 
   /**
-   * Fetch users dynamically through APIs from the existing backend user module:
-   * D:\TASK\ERP-Task\erp_backend\src\users (user.controller.ts)
+   * Fetch users dynamically through APIs from the backend chat and user module:
+   * Prioritizes /chat/users (no strict admin permission required) with fallbacks to /users.
    */
   async fetchUsers(): Promise<User[]> {
     let dmsUsers: any[] = [];
 
-    // 1. Primary: Fetch from ERP backend users module (src/users/user.controller.ts)
+    // 1. Primary: Fetch from backend chat module (/chat/users)
     try {
-      const res = await this.request<{ data?: any[]; pagination?: any }>('/users?page=1&pageSize=200');
-      if (res && Array.isArray(res.data) && res.data.length > 0) {
-        dmsUsers = res.data;
+      const chatRes = await this.request<{ success?: boolean; data?: any[] }>('/chat/users');
+      if (chatRes && Array.isArray(chatRes.data) && chatRes.data.length > 0) {
+        dmsUsers = chatRes.data;
       }
     } catch (err: any) {
-      console.warn('Could not list users from /users:', err?.message);
+      console.warn('Could not list users from /chat/users:', err?.message);
     }
 
-    // 2. Fallback: try /chat/users
+    // 2. Fallback: try /users?page=1&pageSize=200
     if (dmsUsers.length === 0) {
       try {
-        const chatRes = await this.request<{ success?: boolean; data?: any[] }>('/chat/users');
-        if (chatRes && Array.isArray(chatRes.data) && chatRes.data.length > 0) {
-          dmsUsers = chatRes.data;
+        const res = await this.request<{ data?: any[]; pagination?: any }>('/users?page=1&pageSize=200');
+        if (res && Array.isArray(res.data) && res.data.length > 0) {
+          dmsUsers = res.data;
         }
       } catch (err: any) {
-        console.warn('Could not list users from /chat/users:', err?.message);
+        console.warn('Could not list users from /users:', err?.message);
       }
     }
 
