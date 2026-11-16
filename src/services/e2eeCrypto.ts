@@ -64,6 +64,9 @@ class E2eeCryptoService {
   // Tracks active key version for each conversation
   private conversationKeyVersions = new Map<string, number>();
 
+  // Tracks conversations where key bundles have already been verified/published
+  private ensuredBundles = new Set<string>();
+
   // Initialization promise guard to prevent race conditions
   private initPromise: Promise<void> | null = null;
 
@@ -466,6 +469,8 @@ class E2eeCryptoService {
   ): Promise<void> {
     if (!this.isSupported()) return;
     if (!participantIds || participantIds.length === 0) return;
+    const bundleKey = `${conversationId}:v${keyVersion}`;
+    if (this.ensuredBundles.has(bundleKey)) return;
     const subtle = this.requireSubtle();
 
     try {
@@ -494,6 +499,7 @@ class E2eeCryptoService {
 
       if (bundles.length > 0) {
         await dmsApi.publishKeyBundle(conversationId, keyVersion, bundles);
+        this.ensuredBundles.add(bundleKey);
       }
     } catch (err) {
       console.warn('Failed to ensure bundles for participants:', err);
@@ -584,6 +590,7 @@ class E2eeCryptoService {
             const actualCacheKey = `${conversationId}:v${actualVersion}`;
             this.conversationKeysCache.set(actualCacheKey, convKey);
             this.conversationKeyVersions.set(conversationId, actualVersion);
+            this.ensuredBundles.add(`${conversationId}:v${actualVersion}`);
 
             if (typeof localStorage !== 'undefined') {
               try {
@@ -637,6 +644,7 @@ class E2eeCryptoService {
 
         if (bundles.length > 0) {
           await dmsApi.publishKeyBundle(conversationId, version, bundles);
+          this.ensuredBundles.add(`${conversationId}:v${version}`);
         }
 
         if (typeof localStorage !== 'undefined') {
@@ -925,6 +933,7 @@ class E2eeCryptoService {
     this.userPublicKeysCache.clear();
     this.conversationKeysCache.clear();
     this.conversationKeyVersions.clear();
+    this.ensuredBundles.clear();
     this.initPromise = null;
   }
 }

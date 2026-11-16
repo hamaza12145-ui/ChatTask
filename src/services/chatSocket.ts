@@ -158,6 +158,24 @@ class ChatSocketService {
     }
   }
 
+  public markConversationRead(conversationId: string, userId?: string): void {
+    if (this.socket?.connected) {
+      this.socket.emit('mark_read', {
+        conversationId,
+        userId: userId || this.currentUserId,
+      });
+    }
+  }
+
+  public markConversationDelivered(conversationId: string, userId?: string): void {
+    if (this.socket?.connected) {
+      this.socket.emit('mark_delivered', {
+        conversationId,
+        userId: userId || this.currentUserId,
+      });
+    }
+  }
+
   // --- Pub/Sub listener registry ---
 
   public on(event: string, handler: SocketEventHandler): () => void {

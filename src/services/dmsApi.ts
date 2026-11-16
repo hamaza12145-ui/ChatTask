@@ -17,6 +17,7 @@ import {
   ChatMessage,
   AppNotification,
 } from '../types';
+import { chatSocket } from './chatSocket';
 
 /**
  * Dynamically resolves the DMS/ERP backend URL.
@@ -435,22 +436,10 @@ class DmsApiService {
         // BroadcastChannel optional fallback
       }
 
-      // Re-sync immediately on window focus, visibility, and network reconnect
-      window.addEventListener('focus', () => {
-        if (this.isLiveSyncActive) {
-          this.triggerSync().catch(() => {});
-        }
-      });
-
+      // Ensure WebSocket reconnects when returning online without trigger-spamming REST endpoints
       window.addEventListener('online', () => {
-        if (this.isLiveSyncActive) {
-          this.triggerSync().catch(() => {});
-        }
-      });
-
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && this.isLiveSyncActive) {
-          this.triggerSync().catch(() => {});
+        if (!chatSocket.isConnected()) {
+          chatSocket.connect();
         }
       });
     }
@@ -480,7 +469,7 @@ class DmsApiService {
         localStorage.removeItem('dms_user_email');
       }
     }
-    // Invalidate cached hashes to ensure immediate fresh sync
+    // Invalidate cached hashes to ensure fresh state upon login
     this.lastUsersHash = '';
     this.lastTasksHash = '';
     this.lastConversationsHash = '';
@@ -492,14 +481,12 @@ class DmsApiService {
   }
 
   /**
-   * Broadcast local mutation across all browser tabs and trigger immediate sync
+   * Broadcast local mutation across all browser tabs without trigger-spamming REST endpoints
    */
   public broadcastMutation(scope: 'all' | 'messages' | 'tasks' | 'users' | 'conversations' | 'notifications' = 'all') {
     try {
       this.broadcastChannel?.postMessage({ type: 'DMS_SYNC_TRIGGER', scope });
     } catch {}
-    // Trigger local immediate sync without waiting for next polling tick
-    this.triggerSync(scope).catch(() => {});
   }
 
   /**
@@ -521,32 +508,23 @@ class DmsApiService {
     this.isLiveSyncActive = true;
     this.tickCount = 0;
 
-    // Trigger initial sync immediately
-    this.triggerSync('all').catch(() => {});
-
-    // Adaptive periodic reconciliation (real-time chat messaging is powered by WebSocket)
+    // Real-time chat messaging, previews, unread counts, receipts, and typing are 100% handled by Socket.IO
     this.syncTimer = setInterval(() => {
       if (!this.isLiveSyncActive) return;
 
-      // Throttle when page is hidden / backgrounded
+      // Pause background sync when page is hidden / backgrounded
       if (typeof document !== 'undefined' && document.hidden) {
-        this.tickCount++;
-        if (this.tickCount % 4 !== 0) return;
+        return;
       }
 
       this.tickCount++;
-      const isEvery4Ticks = this.tickCount % 4 === 0; // ~40s (users & depts)
-      const isEvery2Ticks = this.tickCount % 2 === 0; // ~20s (tasks & notifs)
+      const isEvery4Ticks = this.tickCount % 4 === 0; // ~120s (users directory check)
+      const isEvery2Ticks = this.tickCount % 2 === 0; // ~60s (tasks check)
 
       if (isEvery4Ticks) {
-        // Users & Directory check
-        this.triggerSync('all').catch(() => {});
+        this.triggerSync('users').catch(() => {});
       } else if (isEvery2Ticks) {
-        // Tasks check
         this.triggerSync('tasks').catch(() => {});
-      } else {
-        // Notifications check
-        this.triggerSync('notifications').catch(() => {});
       }
     }, intervalMs);
 
@@ -577,10 +555,6 @@ class DmsApiService {
 
   public setActiveChatId(chatId: string | null): void {
     this.activeChatId = chatId;
-    if (chatId) {
-      // Immediately trigger message sync for active chat
-      this.triggerSync('messages').catch(() => {});
-    }
   }
 
   public setCurrentUserId(userId: string): void {
@@ -621,10 +595,12 @@ class DmsApiService {
 
     this.isSyncing = true;
     try {
+      const isSocketActive = chatSocket.isConnected();
       const shouldFetchAll = scope === 'all';
-      const shouldFetchMessages = shouldFetchAll || scope === 'messages';
+      // When Socket.IO is connected, real-time messages and conversations are pushed over WebSocket
+      const shouldFetchMessages = (scope === 'messages') || (shouldFetchAll && !isSocketActive);
       const shouldFetchTasks = shouldFetchAll || scope === 'tasks';
-      const shouldFetchConvs = shouldFetchAll || scope === 'conversations' || scope === 'messages';
+      const shouldFetchConvs = (scope === 'conversations') || (shouldFetchAll && !isSocketActive);
       const shouldFetchUsers = shouldFetchAll || scope === 'users';
       const shouldFetchNotifs = shouldFetchAll || scope === 'notifications';
 
@@ -1783,7 +1759,6 @@ class DmsApiService {
         keyVersion: msg.keyVersion ?? 1,
       }),
     });
-    this.broadcastMutation('messages');
     const m = res.data;
     return {
       id: m.id,
@@ -1921,7 +1896,6 @@ class DmsApiService {
       method: 'POST',
       body: JSON.stringify({ emoji, userId }),
     });
-    this.broadcastMutation('messages');
     return res.data;
   }
 
@@ -1932,7 +1906,6 @@ class DmsApiService {
     const res = await this.request<{ success?: boolean; data: any }>(`/chat/messages/${messageId}/read`, {
       method: 'PATCH',
     });
-    this.broadcastMutation('messages');
     return res.data;
   }
 
@@ -1943,6 +1916,12 @@ class DmsApiService {
   async markConversationRead(conversationId: string, userId?: string): Promise<{ success: boolean; readCount?: number }> {
     try {
       const activeUid = userId || this.currentUserId;
+      // Real-time via Socket.IO (0 HTTP requests)
+      if (chatSocket.isConnected()) {
+        chatSocket.markConversationRead(conversationId, activeUid);
+        return { success: true };
+      }
+      // Fallback REST only when socket is disconnected
       const res = await this.request<{ success: boolean; readCount?: number }>(
         `/chat/conversations/${conversationId}/read`,
         {
@@ -1950,8 +1929,6 @@ class DmsApiService {
           body: JSON.stringify({ userId: activeUid }),
         }
       );
-      this.broadcastMutation('messages');
-      this.broadcastMutation('conversations');
       return res;
     } catch (err: any) {
       console.warn('Failed to mark conversation read:', err?.message);
@@ -1965,6 +1942,12 @@ class DmsApiService {
   async markConversationDelivered(conversationId: string, userId?: string): Promise<{ success: boolean; deliveredCount?: number }> {
     try {
       const activeUid = userId || this.currentUserId;
+      // Real-time via Socket.IO (0 HTTP requests)
+      if (chatSocket.isConnected()) {
+        chatSocket.markConversationDelivered(conversationId, activeUid);
+        return { success: true };
+      }
+      // Fallback REST only when socket is disconnected
       const res = await this.request<{ success: boolean; deliveredCount?: number }>(
         `/chat/conversations/${conversationId}/delivered`,
         {
@@ -1972,7 +1955,6 @@ class DmsApiService {
           body: JSON.stringify({ userId: activeUid }),
         }
       );
-      this.broadcastMutation('messages');
       return res;
     } catch (err: any) {
       console.warn('Failed to mark conversation delivered:', err?.message);
