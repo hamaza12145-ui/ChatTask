@@ -30,6 +30,9 @@ interface AppStoreContextType {
   // Current user & Users (Fetched from DMS)
   currentUser: User;
   users: User[];
+  onlineUserIds: Set<string>;
+  lastSeenMap: Record<string, string>;
+  isUserOnline: (userId: string) => boolean;
   departments: DepartmentMeta[];
   fetchDepartments: () => Promise<DepartmentMeta[]>;
   setCurrentUserId: (userId: string) => void;
@@ -263,9 +266,55 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     return false;
   });
 
+  // Online presence state (strictly backed by active authenticated WebSocket sessions)
+  const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
+  const [lastSeenMap, setLastSeenMap] = useState<Record<string, string>>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('dmstask_last_seen_cache');
+        if (stored) return JSON.parse(stored);
+      } catch {}
+    }
+    return {};
+  });
+
+  const isUserOnline = useCallback(
+    (userId: string) => {
+      return onlineUserIds.has(String(userId)) || (Boolean(currentUserId) && String(userId) === String(currentUserId));
+    },
+    [onlineUserIds, currentUserId]
+  );
+
+  // Dynamic user presence resolver
+  const usersWithPresence = useMemo(() => {
+    return users.map((u) => {
+      const isOnline = onlineUserIds.has(String(u.id)) || (Boolean(currentUserId) && String(u.id) === String(currentUserId));
+      const lastSeen = lastSeenMap[String(u.id)] || u.lastSeen;
+      return {
+        ...u,
+        status: (isOnline ? 'online' : 'offline') as UserStatus,
+        lastSeen,
+      };
+    });
+  }, [users, onlineUserIds, lastSeenMap, currentUserId]);
+
+  const getUserById = useCallback(
+    (userId: string) => {
+      const u = users.find((user) => String(user.id) === String(userId));
+      if (!u) return undefined;
+      const isOnline = onlineUserIds.has(String(u.id)) || (Boolean(currentUserId) && String(u.id) === String(currentUserId));
+      const lastSeen = lastSeenMap[String(u.id)] || u.lastSeen;
+      return {
+        ...u,
+        status: (isOnline ? 'online' : 'offline') as UserStatus,
+        lastSeen,
+      };
+    },
+    [users, onlineUserIds, lastSeenMap, currentUserId]
+  );
+
   // Active user resolver
-  const currentUser = users.find((u) => u.id === currentUserId) || users[0] || FALLBACK_EMPTY_USER;
-  const getUserById = useCallback((userId: string) => users.find((u) => u.id === String(userId)), [users]);
+  const currentUser = getUserById(currentUserId) || usersWithPresence[0] || FALLBACK_EMPTY_USER;
 
   // Tasks state (Fetched from DMS)
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -689,15 +738,25 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         }
       }
 
-      // Fetch Departments, Users, Tasks, Conversations, Active Chat Messages, and Notifications concurrently from ERP-Task backend
-      const [fetchedDepts, fetchedUsers, fetchedTasks, fetchedConversations, fetchedMessages, fetchedNotifications] = await Promise.all([
+      // Fetch Departments, Users, Tasks, Conversations, Active Chat Messages, Notifications, and Presence concurrently from ERP-Task backend
+      const [fetchedDepts, fetchedUsers, fetchedTasks, fetchedConversations, fetchedMessages, fetchedNotifications, fetchedPresence] = await Promise.all([
         dmsApi.fetchDepartments().catch(() => []),
         dmsApi.fetchUsers(),
         dmsApi.fetchTasks(),
         dmsApi.fetchConversations(currentUserId),
         activeChatId ? dmsApi.fetchMessages(activeChatId, 50, currentUserId).catch(() => []) : Promise.resolve([]),
         dmsApi.fetchNotifications(currentUserId),
+        dmsApi.fetchPresence().catch(() => ({ onlineUsers: [], lastSeen: {} })),
       ]);
+
+      if (fetchedPresence) {
+        if (Array.isArray(fetchedPresence.onlineUsers)) {
+          setOnlineUserIds(new Set(fetchedPresence.onlineUsers.map(String)));
+        }
+        if (fetchedPresence.lastSeen) {
+          setLastSeenMap((prev) => ({ ...prev, ...fetchedPresence.lastSeen }));
+        }
+      }
 
       if (fetchedDepts && fetchedDepts.length > 0) {
         setDepartments(fetchedDepts);
@@ -1322,6 +1381,64 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       })
     );
 
+    // 5. Authoritative Presence Sync (Initial snapshot & Reconnects)
+    unsubs.push(
+      chatSocket.on('presence_sync', (payload: any) => {
+        if (Array.isArray(payload?.onlineUsers)) {
+          setOnlineUserIds(new Set(payload.onlineUsers.map(String)));
+        }
+        if (payload?.lastSeen && typeof payload.lastSeen === 'object') {
+          setLastSeenMap((prev) => {
+            const updated = { ...prev, ...payload.lastSeen };
+            if (typeof localStorage !== 'undefined') {
+              try {
+                localStorage.setItem('dmstask_last_seen_cache', JSON.stringify(updated));
+              } catch {}
+            }
+            return updated;
+          });
+        }
+      })
+    );
+
+    // 6. Real-Time User Presence Event (Live user connected or disconnected)
+    unsubs.push(
+      chatSocket.on('user_presence', (payload: any) => {
+        if (!payload?.userId) return;
+        const uid = String(payload.userId);
+        const status = payload.status;
+        const lastSeen = payload.lastSeen || payload.timestamp;
+
+        if (status === 'online') {
+          setOnlineUserIds((prev) => {
+            const next = new Set(prev);
+            next.add(uid);
+            return next;
+          });
+        } else if (status === 'offline') {
+          setOnlineUserIds((prev) => {
+            const next = new Set(prev);
+            next.delete(uid);
+            return next;
+          });
+          if (lastSeen) {
+            setLastSeenMap((prev) => {
+              const updated = { ...prev, [uid]: String(lastSeen) };
+              if (typeof localStorage !== 'undefined') {
+                try {
+                  localStorage.setItem('dmstask_last_seen_cache', JSON.stringify(updated));
+                } catch {}
+              }
+              return updated;
+            });
+          }
+        }
+      })
+    );
+
+    // Request presence snapshot upon socket listener attachment
+    chatSocket.requestPresenceSync();
+
     return () => {
       unsubs.forEach((fn) => fn());
       typingTimeoutsRef.current.forEach((t) => clearTimeout(t));
@@ -1388,6 +1505,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   const logout = useCallback(async () => {
     try {
       e2eeCrypto.clearSession();
+      chatSocket.disconnect();
       await dmsApi.logout();
     } finally {
       setIsAuthenticated(false);
@@ -2571,7 +2689,10 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     <AppStoreContext.Provider
       value={{
         currentUser,
-        users,
+        users: usersWithPresence,
+        onlineUserIds,
+        lastSeenMap,
+        isUserOnline,
         departments,
         fetchDepartments,
         setCurrentUserId,

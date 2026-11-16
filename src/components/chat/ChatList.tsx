@@ -347,6 +347,12 @@ export const ChatList: React.FC = () => {
                         #
                       </span>
                     )}
+                    {chat.type === 'direct' && otherUser?.status === 'online' && (
+                      <span
+                        className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900"
+                        title="Online"
+                      />
+                    )}
                   </div>
 
                   {/* Details */}

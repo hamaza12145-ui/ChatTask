@@ -303,6 +303,63 @@ export const formatUserDesignation = (role: string, department: string): string 
   }
 };
 
+/**
+ * WhatsApp-style human-friendly Last Seen formatter.
+ * Returns:
+ * - "online" (if online)
+ * - "last seen just now" (< 60s)
+ * - "last seen today at 2:45 PM"
+ * - "last seen yesterday at 10:15 AM"
+ * - "last seen Monday at 3:30 PM" (within 6 days)
+ * - "last seen 14 Nov at 1:15 PM" (older)
+ * - "offline" (if no timestamp available)
+ */
+export const formatLastSeen = (lastSeenDate?: string | Date | null): string => {
+  if (!lastSeenDate) return 'offline';
+  const date = typeof lastSeenDate === 'string' ? new Date(lastSeenDate) : lastSeenDate;
+  if (!date || isNaN(date.getTime())) return 'offline';
+
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+
+  // Within the last 60 seconds
+  if (diffMs < 60 * 1000 && diffMs >= 0) {
+    return 'last seen just now';
+  }
+
+  const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+
+  const isToday =
+    date.getDate() === now.getDate() &&
+    date.getMonth() === now.getMonth() &&
+    date.getFullYear() === now.getFullYear();
+
+  if (isToday) {
+    return `last seen today at ${timeStr}`;
+  }
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday =
+    date.getDate() === yesterday.getDate() &&
+    date.getMonth() === yesterday.getMonth() &&
+    date.getFullYear() === yesterday.getFullYear();
+
+  if (isYesterday) {
+    return `last seen yesterday at ${timeStr}`;
+  }
+
+  // Within past 6 days: show day of the week
+  if (diffMs < 6 * 24 * 60 * 60 * 1000 && diffMs > 0) {
+    const dayName = date.toLocaleDateString([], { weekday: 'long' });
+    return `last seen ${dayName} at ${timeStr}`;
+  }
+
+  // Older: show date and time
+  const dateStr = date.toLocaleDateString([], { day: 'numeric', month: 'short' });
+  return `last seen ${dateStr} at ${timeStr}`;
+};
+
 // ==========================================
 // REAL-TIME DYNAMIC SYNCHRONIZATION TYPES
 // ==========================================
@@ -995,7 +1052,7 @@ class DmsApiService {
         department: dept,
         avatar: getInitials(fullName),
         avatarBg: getAvatarBg(u.id),
-        status: u.isActive !== false ? 'online' : 'offline',
+        status: 'offline',
         email: u.email || '',
         phone: u.phone || undefined,
         role: u.role || 'user',
@@ -1037,7 +1094,7 @@ class DmsApiService {
         department: dept,
         avatar: getInitials(fullName),
         avatarBg: getAvatarBg(u.id),
-        status: u.isActive !== false ? 'online' : 'offline',
+        status: 'offline',
         email: u.email || '',
         phone: u.phone || undefined,
         role: u.role || 'user',
@@ -1045,6 +1102,18 @@ class DmsApiService {
       };
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Fetch current live online presence & last seen snapshot
+   */
+  async fetchPresence(): Promise<{ onlineUsers: string[]; lastSeen: Record<string, string> }> {
+    try {
+      const res = await this.request<{ success: boolean; data: { onlineUsers: string[]; lastSeen: Record<string, string> } }>('/chat/presence');
+      return res?.data || { onlineUsers: [], lastSeen: {} };
+    } catch {
+      return { onlineUsers: [], lastSeen: {} };
     }
   }
 

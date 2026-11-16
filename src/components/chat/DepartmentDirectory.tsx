@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { Department, User } from '../../types';
-import { getDepartmentMeta, dmsApi } from '../../services/dmsApi';
+import { getDepartmentMeta, dmsApi, formatLastSeen } from '../../services/dmsApi';
 import {
   ChevronDown,
   ChevronRight,
@@ -311,9 +311,9 @@ export const DepartmentDirectory: React.FC<DepartmentDirectoryProps> = ({
                                 <h4 className="text-xs font-bold text-white truncate">
                                   {user.name}
                                 </h4>
-                                <div className="flex items-center gap-1.5 text-[10px] text-emerald-400">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                  <span className="capitalize">{user.status}</span>
+                                <div className={`flex items-center gap-1.5 text-[10px] ${user.status === 'online' ? 'text-emerald-400' : 'text-slate-400'}`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${user.status === 'online' ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`} />
+                                  <span>{user.status === 'online' ? 'Online' : formatLastSeen(user.lastSeen)}</span>
                                 </div>
                               </div>
                             </div>

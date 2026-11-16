@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { MessageBubble } from './MessageBubble';
+import { formatLastSeen } from '../../services/dmsApi';
 import { Task, TaskAttachment } from '../../types';
 import {
   ArrowLeft,
@@ -367,14 +368,22 @@ export const ChatWindow: React.FC = () => {
             <ArrowLeft className="w-5 h-5" />
           </button>
 
-          {/* Avatar */}
-          <div
-            onClick={() => setIsGroupInfoOpen(true)}
-            className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-white text-xs cursor-pointer shrink-0 ${
-              activeChat.avatarBg || 'bg-slate-600'
-            }`}
-          >
-            {activeChat.type === 'direct' && otherUser ? otherUser.avatar : activeChat.name[0]}
+          {/* Avatar with live online badge */}
+          <div className="relative shrink-0">
+            <div
+              onClick={() => setIsGroupInfoOpen(true)}
+              className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-white text-xs cursor-pointer ${
+                activeChat.avatarBg || 'bg-slate-600'
+              }`}
+            >
+              {activeChat.type === 'direct' && otherUser ? otherUser.avatar : activeChat.name[0]}
+            </div>
+            {activeChat.type === 'direct' && otherUser?.status === 'online' && (
+              <span
+                className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900"
+                title="Online"
+              />
+            )}
           </div>
 
           {/* Title & subtitle */}
@@ -392,7 +401,26 @@ export const ChatWindow: React.FC = () => {
                   {isCurrentChatRecording ? `${currentTypingName} is recording audio...` : `${currentTypingName} is typing...`}
                 </span>
               ) : activeChat.type === 'direct' && otherUser ? (
-                `${otherUser.designation} · ${otherUser.status}`
+                <span className="flex items-center gap-1.5 truncate">
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      otherUser.status === 'online'
+                        ? 'bg-emerald-500 animate-pulse'
+                        : 'bg-slate-400 dark:bg-slate-500'
+                    }`}
+                  />
+                  <span
+                    className={
+                      otherUser.status === 'online'
+                        ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
+                        : 'text-slate-500 dark:text-slate-400'
+                    }
+                  >
+                    {otherUser.status === 'online' ? 'online' : formatLastSeen(otherUser.lastSeen)}
+                  </span>
+                  <span className="text-slate-300 dark:text-slate-600">·</span>
+                  <span className="truncate">{otherUser.designation}</span>
+                </span>
               ) : (
                 `${activeChat.participantIds.length} members · ${activeChat.department || 'Operations'}`
               )}

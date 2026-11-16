@@ -115,6 +115,16 @@ class ChatSocketService {
       this.socket.on('user_presence', (payload: any) => {
         this.triggerLocalEvent('user_presence', payload);
       });
+
+      this.socket.on('presence_sync', (payload: any) => {
+        this.triggerLocalEvent('presence_sync', payload);
+      });
+
+      this.socket.on('connected', (payload: any) => {
+        if (payload?.onlineUsers || payload?.lastSeen) {
+          this.triggerLocalEvent('presence_sync', payload);
+        }
+      });
     } catch (err) {
       this.isConnecting = false;
       console.warn('Socket connection initialization error:', err);
@@ -132,6 +142,12 @@ class ChatSocketService {
 
   public isConnected(): boolean {
     return Boolean(this.socket?.connected);
+  }
+
+  public requestPresenceSync(): void {
+    if (this.socket?.connected) {
+      this.socket.emit('get_presence');
+    }
   }
 
   public joinConversation(conversationId: string): void {

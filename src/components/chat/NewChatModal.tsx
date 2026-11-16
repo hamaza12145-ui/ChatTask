@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { Department, User } from '../../types';
-import { formatDepartmentName } from '../../services/dmsApi';
+import { formatDepartmentName, formatLastSeen } from '../../services/dmsApi';
 import { X, Search, Check, Users, MessageSquare } from 'lucide-react';
 
 export const NewChatModal: React.FC = () => {
@@ -204,7 +204,10 @@ export const NewChatModal: React.FC = () => {
                                 {user.name}
                               </p>
                               <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                {user.designation}
+                                {user.designation} ·{' '}
+                                <span className={user.status === 'online' ? 'text-emerald-600 dark:text-emerald-400 font-medium' : ''}>
+                                  {user.status === 'online' ? 'online' : formatLastSeen(user.lastSeen)}
+                                </span>
                               </p>
                             </div>
                           </div>
