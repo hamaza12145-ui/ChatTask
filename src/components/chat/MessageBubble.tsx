@@ -183,7 +183,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         ? activeChat.participantIds.filter((id) => id !== currentUser.id).slice(0, 2)
         : [currentUser.id],
       attachments: message.attachment ? [message.attachment] : [],
-      requiresApproval: true,
+      requiresApproval: false,
+      workflowType: 'standard',
       proofRequired: false,
     });
   };

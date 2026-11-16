@@ -847,9 +847,10 @@ export const TaskFormModal: React.FC = () => {
             'admin',
           priority: (taskModalInitialData.priority as string) || 'medium',
           workflow_type:
-            (taskModalInitialData as any).workflowType ||
-            (taskModalInitialData as any).workflow_type ||
-            (taskModalInitialData.requiresApproval ? 'approval_required' : 'standard'),
+            (taskModalInitialData as any).workflowType === 'approval_required' ||
+            (taskModalInitialData as any).workflow_type === 'approval_required'
+              ? 'approval_required'
+              : 'standard',
           task_type: 'one_time',
           recurrence_frequency: '',
           custom_recurrence_days: '',
@@ -863,7 +864,9 @@ export const TaskFormModal: React.FC = () => {
           recurrence_end_type: 'never',
           recurrence_end_date: '',
           recurrence_end_occurrences: '',
-          approval_required: !!taskModalInitialData.requiresApproval,
+          approval_required:
+            (taskModalInitialData as any).workflowType === 'approval_required' ||
+            (taskModalInitialData as any).workflow_type === 'approval_required',
         });
 
         // Prepopulate assignees
