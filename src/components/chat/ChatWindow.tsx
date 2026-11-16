@@ -58,6 +58,7 @@ export const ChatWindow: React.FC = () => {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTypingTimestampRef = useRef<number>(0);
 
   // Linked task and tasks associated with this chat (direct links, task cards, department channel, or participants)
   const linkedTask = activeChat?.linkedTaskId ? tasks.find((t) => t.id === activeChat.linkedTaskId) : null;
@@ -127,13 +128,25 @@ export const ChatWindow: React.FC = () => {
     const value = e.target.value;
     setInputText(value);
 
-    // Emit real-time typing indicator over WebSocket
+    // Throttle / debounce real-time typing indicator over WebSocket
     if (activeChat) {
-      sendTypingIndicator(activeChat.id, value.trim().length > 0);
-      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-      typingTimeoutRef.current = setTimeout(() => {
-        if (activeChat) sendTypingIndicator(activeChat.id, false);
-      }, 2500);
+      const isNotEmpty = value.trim().length > 0;
+      const now = Date.now();
+      if (isNotEmpty) {
+        if (now - lastTypingTimestampRef.current > 2000) {
+          lastTypingTimestampRef.current = now;
+          sendTypingIndicator(activeChat.id, true);
+        }
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+          if (activeChat) sendTypingIndicator(activeChat.id, false);
+          lastTypingTimestampRef.current = 0;
+        }, 2500);
+      } else {
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        sendTypingIndicator(activeChat.id, false);
+        lastTypingTimestampRef.current = 0;
+      }
     }
 
     // Check if cursor is right after an '@'
@@ -248,6 +261,7 @@ export const ChatWindow: React.FC = () => {
     if (activeChat) {
       sendTypingIndicator(activeChat.id, false);
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      lastTypingTimestampRef.current = 0;
     }
 
     let fullText = inputText.trim();

@@ -344,31 +344,22 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         });
 
         if (currentUserId) {
-          /**
-           * Backend Read Confirmation:
-           * Clear the unread count only after the backend successfully marks
-           * the conversation as read, preventing optimistic drift if network fails.
-           */
-          dmsApi.markConversationRead(chatId, currentUserId)
-            .then(() => {
-              setChats((prev) =>
-                prev.map((c) =>
-                  c.id === chatId
-                    ? {
-                        ...c,
-                        unreadCounts: {
-                          ...(c.unreadCounts || {}),
-                          [currentUserId]: 0,
-                          [String(currentUserId)]: 0,
-                        },
-                      }
-                    : c
-                )
-              );
-            })
-            .catch((err) => {
-              console.warn('Backend markConversationRead warning:', err?.message);
-            });
+          // Optimistic instant unread badge clear
+          setChats((prev) =>
+            prev.map((c) =>
+              c.id === chatId
+                ? {
+                    ...c,
+                    unreadCounts: {
+                      ...(c.unreadCounts || {}),
+                      [currentUserId]: 0,
+                      [String(currentUserId)]: 0,
+                    },
+                  }
+                : c
+            )
+          );
+          dmsApi.markConversationRead(chatId, currentUserId).catch(() => {});
         }
       }
     },
@@ -1306,33 +1297,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     };
   }, [isAuthenticated, currentUserId, users]);
 
-  /**
-   * Dynamic Read Synchronizer:
-   * Marks a conversation as read ONLY when the user explicitly clicks/opens or switches to it.
-   * Unread count is reset to 0 only after backend confirms the read operation.
-   */
-  useEffect(() => {
-    if (activeChatId && currentUserId) {
-      dmsApi.markConversationRead(activeChatId, currentUserId)
-        .then(() => {
-          setChats((prev) =>
-            prev.map((c) =>
-              c.id === activeChatId
-                ? {
-                    ...c,
-                    unreadCounts: {
-                      ...(c.unreadCounts || {}),
-                      [currentUserId]: 0,
-                      [String(currentUserId)]: 0,
-                    },
-                  }
-                : c
-            )
-          );
-        })
-        .catch(() => {});
-    }
-  }, [activeChatId, currentUserId]);
+
 
   // Dynamic Auto-Decryption: Ensure active conversation messages are decrypted when switching chats or personas
   useEffect(() => {

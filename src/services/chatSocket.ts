@@ -11,6 +11,8 @@ class ChatSocketService {
   private listeners: Map<string, Set<SocketEventHandler>> = new Map();
   private isConnecting: boolean = false;
   private isExplicitlyDisconnected: boolean = false;
+  private markReadTimers = new Map<string, NodeJS.Timeout>();
+  private markDeliveredTimers = new Map<string, NodeJS.Timeout>();
 
   private getSocketUrl(): string {
     return getDmsBaseUrl();
@@ -44,7 +46,7 @@ class ChatSocketService {
     try {
       const baseUrl = this.getSocketUrl().replace(/\/$/, '');
       this.socket = io(`${baseUrl}/ws_chat`, {
-        transports: ['polling', 'websocket'],
+        transports: ['websocket', 'polling'],
         auth: {
           token: authToken,
           userId: uid,
@@ -159,21 +161,47 @@ class ChatSocketService {
   }
 
   public markConversationRead(conversationId: string, userId?: string): void {
-    if (this.socket?.connected) {
-      this.socket.emit('mark_read', {
-        conversationId,
-        userId: userId || this.currentUserId,
-      });
+    if (!this.socket?.connected || !conversationId) return;
+    const uid = userId || this.currentUserId;
+    if (!uid) return;
+
+    if (this.markReadTimers.has(conversationId)) {
+      clearTimeout(this.markReadTimers.get(conversationId)!);
     }
+
+    const timer = setTimeout(() => {
+      this.markReadTimers.delete(conversationId);
+      if (this.socket?.connected) {
+        this.socket.emit('mark_read', {
+          conversationId,
+          userId: uid,
+        });
+      }
+    }, 250);
+
+    this.markReadTimers.set(conversationId, timer);
   }
 
   public markConversationDelivered(conversationId: string, userId?: string): void {
-    if (this.socket?.connected) {
-      this.socket.emit('mark_delivered', {
-        conversationId,
-        userId: userId || this.currentUserId,
-      });
+    if (!this.socket?.connected || !conversationId) return;
+    const uid = userId || this.currentUserId;
+    if (!uid) return;
+
+    if (this.markDeliveredTimers.has(conversationId)) {
+      clearTimeout(this.markDeliveredTimers.get(conversationId)!);
     }
+
+    const timer = setTimeout(() => {
+      this.markDeliveredTimers.delete(conversationId);
+      if (this.socket?.connected) {
+        this.socket.emit('mark_delivered', {
+          conversationId,
+          userId: uid,
+        });
+      }
+    }, 250);
+
+    this.markDeliveredTimers.set(conversationId, timer);
   }
 
   // --- Pub/Sub listener registry ---
