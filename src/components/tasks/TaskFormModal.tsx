@@ -846,7 +846,10 @@ export const TaskFormModal: React.FC = () => {
             currentUser?.department ||
             'admin',
           priority: (taskModalInitialData.priority as string) || 'medium',
-          workflow_type: taskModalInitialData.requiresApproval ? 'approval_required' : 'standard',
+          workflow_type:
+            (taskModalInitialData as any).workflowType ||
+            (taskModalInitialData as any).workflow_type ||
+            (taskModalInitialData.requiresApproval ? 'approval_required' : 'standard'),
           task_type: 'one_time',
           recurrence_frequency: '',
           custom_recurrence_days: '',
@@ -981,15 +984,15 @@ export const TaskFormModal: React.FC = () => {
   const syncFromTaskType = (next: typeof form) => {
     const tt = next.task_type;
     const freq = next.recurrence_frequency;
-    let wt = next.workflow_type;
+    let wt = next.workflow_type || 'standard';
     let rr = next.recurrence_rule;
     if (tt === 'approval_based') wt = 'approval_required';
     if (tt === 'one_time' || tt === 'project_linked') {
-      wt = 'standard';
+      wt = wt || 'standard';
       rr = '';
     }
     if (tt === 'recurring') {
-      wt = 'standard';
+      wt = wt || 'standard';
       if (freq === 'other') {
         rr = next.custom_recurrence_days ? `${next.custom_recurrence_days} days` : '';
       } else {
@@ -1143,7 +1146,7 @@ export const TaskFormModal: React.FC = () => {
       validationErrors.push('Task type is required.');
     }
     if (!form.workflow_type) {
-      validationErrors.push('Workflow type is required.');
+      form.workflow_type = 'standard';
     }
     if (!form.priority) {
       validationErrors.push('Priority is required.');
@@ -1162,7 +1165,9 @@ export const TaskFormModal: React.FC = () => {
       .map((item) => ({ ...item, text: String(item.text || '').trim() }))
       .filter((item) => item.text.length > 0);
 
-    if (form.workflow_type === 'approval_required') {
+    const activeWorkflow = form.workflow_type || 'standard';
+
+    if (activeWorkflow === 'approval_required') {
       if (!approverUsers || approverUsers.length === 0) {
         validationErrors.push('At least one approver is required for approval-required tasks.');
       }
@@ -1195,12 +1200,12 @@ export const TaskFormModal: React.FC = () => {
         dueDate: form.due_date,
         assigneeIds: assignedUsers.map((u) => String(u.id)),
         checklistTitles: movItemsClean.map((m) => m.text),
-        requiresApproval: form.workflow_type === 'approval_required',
+        requiresApproval: activeWorkflow === 'approval_required',
         proofRequired: false,
         sourceChatId: taskModalInitialData?.sourceChatId || activeChat?.id,
         sourceMessageId: taskModalInitialData?.sourceMessageId,
         taskType: form.task_type,
-        workflowType: form.workflow_type,
+        workflowType: activeWorkflow,
         projectName: form.project_name || undefined,
         recurrenceRule: form.recurrence_rule || undefined,
         recurrenceNextDate: form.recurrence_next_date || undefined,
@@ -1469,13 +1474,13 @@ export const TaskFormModal: React.FC = () => {
               <TaskFormSelect
                 name="workflow_type"
                 label=""
-                value={form.workflow_type}
+                value={form.workflow_type || 'standard'}
                 onChange={handleSelectChange}
                 icon={GitBranch}
-                defaultOptionText="Workflow"
+                defaultOptionText="Standard Workflow"
                 options={[
-                  { value: 'standard', label: 'Standard workflow' },
-                  { value: 'approval_required', label: 'Approval required' },
+                  { value: 'standard', label: 'Standard Workflow' },
+                  { value: 'approval_required', label: 'Approval Required' },
                 ]}
               />
 
