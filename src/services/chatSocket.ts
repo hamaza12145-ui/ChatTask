@@ -150,12 +150,20 @@ class ChatSocketService {
     }
   }
 
-  public sendTyping(conversationId: string, isTyping: boolean, userId?: string): void {
+  public sendTyping(
+    conversationId: string,
+    isTyping: boolean,
+    userId?: string,
+    status: 'typing' | 'recording' | 'idle' = isTyping ? 'typing' : 'idle',
+    participantIds?: string[]
+  ): void {
     if (this.socket?.connected) {
       this.socket.emit('typing', {
         conversationId,
         isTyping,
         userId: userId || this.currentUserId,
+        status,
+        participantIds,
       });
     }
   }

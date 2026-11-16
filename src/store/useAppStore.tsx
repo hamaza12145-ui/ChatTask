@@ -57,7 +57,12 @@ interface AppStoreContextType {
   hasMoreOlderMessages: Record<string, boolean>;
   isLoadingOlderMessages: boolean;
   loadOlderMessages: (chatId: string) => Promise<void>;
-  sendTypingIndicator: (chatId: string, isTyping: boolean) => void;
+  sendTypingIndicator: (
+    chatId: string,
+    isTyping: boolean,
+    status?: 'typing' | 'recording' | 'idle',
+    participantIds?: string[]
+  ) => void;
   sendMessage: (
     chatId: string,
     text: string,
@@ -77,7 +82,7 @@ interface AppStoreContextType {
   setTaskQuoteForComposer: (task: Task | null) => void;
 
   // Typing simulator
-  typingStatus: Record<string, string>; // chatId -> userName who is typing
+  typingStatus: Record<string, { name: string; status: 'typing' | 'recording' } | string>; // chatId -> userName who is typing
 
   // Tasks (Fetched from DMS)
   tasks: Task[];
@@ -543,12 +548,18 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     [chats, messagesByChatId, tasks]
   );
 
-  // Typing simulator state
-  const [typingStatus, setTypingStatus] = useState<Record<string, string>>({});
+  // Typing indicator state
+  const [typingStatus, setTypingStatus] = useState<Record<string, { name: string; status: 'typing' | 'recording' } | string>>({});
+  const typingTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
   const sendTypingIndicator = useCallback(
-    (chatId: string, isTyping: boolean) => {
-      chatSocket.sendTyping(chatId, isTyping, currentUserId);
+    (
+      chatId: string,
+      isTyping: boolean,
+      status: 'typing' | 'recording' | 'idle' = isTyping ? 'typing' : 'idle',
+      participantIds?: string[]
+    ) => {
+      chatSocket.sendTyping(chatId, isTyping, currentUserId, status, participantIds);
     },
     [currentUserId]
   );
@@ -1261,31 +1272,50 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       })
     );
 
-    // 4. Typing Indicator
+    // 4. Typing & Recording Indicator
     unsubs.push(
       chatSocket.on('typing_indicator', (payload: any) => {
         if (!payload?.conversationId || !payload?.userId) return;
         if (String(payload.userId) === String(currentUserId)) return;
 
-        const typingUser = users.find((u) => String(u.id) === String(payload.userId));
-        const displayName = typingUser?.name || 'Someone';
+        const convId = String(payload.conversationId);
 
-        if (payload.isTyping) {
+        // Clear existing auto-clear timer for this conversation
+        if (typingTimeoutsRef.current.has(convId)) {
+          clearTimeout(typingTimeoutsRef.current.get(convId)!);
+          typingTimeoutsRef.current.delete(convId);
+        }
+
+        const isTyping = Boolean(payload.isTyping);
+        const status: 'typing' | 'recording' | 'idle' = payload.status || (isTyping ? 'typing' : 'idle');
+
+        if (isTyping && status !== 'idle') {
+          const typingUser = users.find((u) => String(u.id) === String(payload.userId));
+          const displayName = typingUser?.name || 'Someone';
+
           setTypingStatus((prev) => ({
             ...prev,
-            [payload.conversationId]: displayName,
+            [convId]: {
+              name: displayName,
+              status: status === 'recording' ? 'recording' : 'typing',
+            },
           }));
-          setTimeout(() => {
+
+          // Set 4-second safety auto-clear timeout in case idle event is missed
+          const timer = setTimeout(() => {
             setTypingStatus((prev) => {
               const next = { ...prev };
-              delete next[payload.conversationId];
+              delete next[convId];
               return next;
             });
-          }, 3500);
+            typingTimeoutsRef.current.delete(convId);
+          }, 4000);
+
+          typingTimeoutsRef.current.set(convId, timer);
         } else {
           setTypingStatus((prev) => {
             const next = { ...prev };
-            delete next[payload.conversationId];
+            delete next[convId];
             return next;
           });
         }
@@ -1294,6 +1324,8 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
     return () => {
       unsubs.forEach((fn) => fn());
+      typingTimeoutsRef.current.forEach((t) => clearTimeout(t));
+      typingTimeoutsRef.current.clear();
     };
   }, [isAuthenticated, currentUserId, users]);
 

@@ -135,16 +135,16 @@ export const ChatWindow: React.FC = () => {
       if (isNotEmpty) {
         if (now - lastTypingTimestampRef.current > 2000) {
           lastTypingTimestampRef.current = now;
-          sendTypingIndicator(activeChat.id, true);
+          sendTypingIndicator(activeChat.id, true, 'typing', activeChat.participantIds);
         }
         if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
         typingTimeoutRef.current = setTimeout(() => {
-          if (activeChat) sendTypingIndicator(activeChat.id, false);
+          if (activeChat) sendTypingIndicator(activeChat.id, false, 'idle', activeChat.participantIds);
           lastTypingTimestampRef.current = 0;
         }, 2500);
       } else {
         if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-        sendTypingIndicator(activeChat.id, false);
+        sendTypingIndicator(activeChat.id, false, 'idle', activeChat.participantIds);
         lastTypingTimestampRef.current = 0;
       }
     }
@@ -259,7 +259,7 @@ export const ChatWindow: React.FC = () => {
     if ((!inputText.trim() && !pendingAttachment) || !activeChat) return;
 
     if (activeChat) {
-      sendTypingIndicator(activeChat.id, false);
+      sendTypingIndicator(activeChat.id, false, 'idle', activeChat.participantIds);
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       lastTypingTimestampRef.current = 0;
     }
@@ -287,15 +287,35 @@ export const ChatWindow: React.FC = () => {
     setShowMentionMenu(false);
   };
 
+  const startRecordingVoice = () => {
+    setIsRecordingVoice(true);
+    if (activeChat) {
+      sendTypingIndicator(activeChat.id, true, 'recording', activeChat.participantIds);
+    }
+  };
+
+  const cancelRecordingVoice = () => {
+    setIsRecordingVoice(false);
+    if (activeChat) {
+      sendTypingIndicator(activeChat.id, false, 'idle', activeChat.participantIds);
+    }
+  };
+
   const handleSendVoiceNote = () => {
     setIsRecordingVoice(false);
+    if (activeChat) {
+      sendTypingIndicator(activeChat.id, false, 'idle', activeChat.participantIds);
+    }
     const duration = Math.max(3, recordingSeconds);
     sendMessage(activeChat.id, '', {
       voiceDuration: duration,
     });
   };
 
-  const isCurrentChatTyping = typingStatus[activeChat.id];
+  const typingInfo = activeChat ? typingStatus[activeChat.id] : undefined;
+  const isCurrentChatTyping = Boolean(typingInfo);
+  const currentTypingName = typeof typingInfo === 'object' && typingInfo ? typingInfo.name : (typeof typingInfo === 'string' ? typingInfo : '');
+  const isCurrentChatRecording = typeof typingInfo === 'object' && typingInfo ? typingInfo.status === 'recording' : false;
 
   // Group messages by date for date dividers
   const renderMessagesWithDates = () => {
@@ -367,8 +387,9 @@ export const ChatWindow: React.FC = () => {
             </h3>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
               {isCurrentChatTyping ? (
-                <span className="text-indigo-600 dark:text-indigo-400 font-medium italic animate-pulse">
-                  {isCurrentChatTyping} is typing...
+                <span className={isCurrentChatRecording ? "text-rose-600 dark:text-rose-400 font-medium italic animate-pulse flex items-center gap-1" : "text-indigo-600 dark:text-indigo-400 font-medium italic animate-pulse"}>
+                  {isCurrentChatRecording && <Mic className="w-3 h-3 inline shrink-0" />}
+                  {isCurrentChatRecording ? `${currentTypingName} is recording audio...` : `${currentTypingName} is typing...`}
                 </span>
               ) : activeChat.type === 'direct' && otherUser ? (
                 `${otherUser.designation} · ${otherUser.status}`
@@ -467,15 +488,26 @@ export const ChatWindow: React.FC = () => {
           renderMessagesWithDates()
         )}
 
-        {/* Live typing indicator bubble */}
+        {/* Live typing / recording indicator bubble */}
         {isCurrentChatTyping && (
           <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs py-1 px-2 animate-in fade-in">
-            <div className="flex gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" />
-              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce [animation-delay:0.2s]" />
-              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce [animation-delay:0.4s]" />
-            </div>
-            <span className="text-[11px] italic">{isCurrentChatTyping} is typing...</span>
+            {isCurrentChatRecording ? (
+              <>
+                <Mic className="w-3.5 h-3.5 text-rose-500 animate-pulse shrink-0" />
+                <span className="text-[11px] italic font-medium text-rose-600 dark:text-rose-400">
+                  {currentTypingName} is recording audio...
+                </span>
+              </>
+            ) : (
+              <>
+                <div className="flex gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce [animation-delay:0.2s]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce [animation-delay:0.4s]" />
+                </div>
+                <span className="text-[11px] italic">{currentTypingName} is typing...</span>
+              </>
+            )}
           </div>
         )}
 
@@ -608,7 +640,7 @@ export const ChatWindow: React.FC = () => {
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setIsRecordingVoice(false)}
+                onClick={cancelRecordingVoice}
                 className="px-2 py-1 text-xs text-slate-600 hover:text-slate-800 dark:text-slate-400"
               >
                 Cancel
@@ -715,7 +747,7 @@ export const ChatWindow: React.FC = () => {
             {/* Voice note simulation trigger */}
             {!inputText.trim() && !pendingAttachment && (
               <button
-                onClick={() => setIsRecordingVoice(true)}
+                onClick={startRecordingVoice}
                 className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors shrink-0"
                 title="Hold or click to record voice note"
               >

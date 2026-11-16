@@ -18,6 +18,7 @@ import {
   CheckCheck,
   MessageSquare,
   UserPlus,
+  Mic,
 } from 'lucide-react';
 
 export const ChatList: React.FC = () => {
@@ -302,7 +303,10 @@ export const ChatList: React.FC = () => {
                 chat.unreadCounts?.[Number(currentUser.id)] ??
                 0
               );
-              const isTyping = !!typingStatus[chat.id];
+              const typingInfo = typingStatus[chat.id];
+              const isTyping = !!typingInfo;
+              const typingName = typeof typingInfo === 'object' && typingInfo ? typingInfo.name : (typeof typingInfo === 'string' ? typingInfo : '');
+              const isRecording = typeof typingInfo === 'object' && typingInfo ? typingInfo.status === 'recording' : false;
 
               // Resolve target user if direct chat
               let chatDisplayName = chat.name;
@@ -372,9 +376,16 @@ export const ChatList: React.FC = () => {
                     <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                       <div className="truncate min-w-0 pr-2 flex items-center">
                         {isTyping ? (
-                          <span className="text-emerald-600 dark:text-emerald-400 font-medium italic animate-pulse">
-                            {typingStatus[chat.id]} is typing...
-                          </span>
+                          isRecording ? (
+                            <span className="text-rose-600 dark:text-rose-400 font-medium italic animate-pulse flex items-center gap-1">
+                              <Mic className="w-3 h-3 shrink-0" />
+                              {typingName} is recording audio...
+                            </span>
+                          ) : (
+                            <span className="text-emerald-600 dark:text-emerald-400 font-medium italic animate-pulse">
+                              {typingName} is typing...
+                            </span>
+                          )
                         ) : (
                           <>
                             {chat.lastMessage && String(chat.lastMessage.senderId) === String(currentUser.id) && (() => {
