@@ -738,25 +738,15 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         }
       }
 
-      // Fetch Departments, Users, Tasks, Conversations, Active Chat Messages, Notifications, and Presence concurrently from ERP-Task backend
-      const [fetchedDepts, fetchedUsers, fetchedTasks, fetchedConversations, fetchedMessages, fetchedNotifications, fetchedPresence] = await Promise.all([
+      // Fetch Departments, Users, Tasks, Conversations, Active Chat Messages, and Notifications concurrently from ERP-Task backend
+      const [fetchedDepts, fetchedUsers, fetchedTasks, fetchedConversations, fetchedMessages, fetchedNotifications] = await Promise.all([
         dmsApi.fetchDepartments().catch(() => []),
         dmsApi.fetchUsers(),
         dmsApi.fetchTasks(),
         dmsApi.fetchConversations(currentUserId),
         activeChatId ? dmsApi.fetchMessages(activeChatId, 50, currentUserId).catch(() => []) : Promise.resolve([]),
         dmsApi.fetchNotifications(currentUserId),
-        dmsApi.fetchPresence().catch(() => ({ onlineUsers: [], lastSeen: {} })),
       ]);
-
-      if (fetchedPresence) {
-        if (Array.isArray(fetchedPresence.onlineUsers)) {
-          setOnlineUserIds(new Set(fetchedPresence.onlineUsers.map(String)));
-        }
-        if (fetchedPresence.lastSeen) {
-          setLastSeenMap((prev) => ({ ...prev, ...fetchedPresence.lastSeen }));
-        }
-      }
 
       if (fetchedDepts && fetchedDepts.length > 0) {
         setDepartments(fetchedDepts);

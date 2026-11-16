@@ -312,10 +312,11 @@ export const ChatList: React.FC = () => {
               let chatDisplayName = chat.name;
               let chatAvatarBg = chat.avatarBg || 'bg-emerald-600';
               let chatAvatar = chat.name.slice(0, 2).toUpperCase();
+              let otherUser: User | undefined;
 
               if (chat.type === 'direct') {
                 const otherUserId = chat.participantIds.find((id) => String(id) !== String(currentUser.id)) || chat.participantIds[0];
-                const otherUser = getUserById(otherUserId);
+                otherUser = getUserById(otherUserId);
                 if (otherUser) {
                   chatDisplayName = otherUser.name;
                   chatAvatarBg = otherUser.avatarBg;
