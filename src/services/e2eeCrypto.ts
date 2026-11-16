@@ -105,11 +105,19 @@ class E2eeCryptoService {
     if (!this.isSupported()) return null;
     const subtle = this.requireSubtle();
     if (!subtle) return null;
+
+    let userSeed = typeof window !== 'undefined' ? localStorage.getItem('dms_e2ee_seed_' + userId) : null;
+    if (!userSeed) {
+      userSeed = `seed_${userId}_${Math.random().toString(36).substring(2, 15)}`;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('dms_e2ee_seed_' + userId, userSeed);
+      }
+    }
+
     const effectivePassword =
       password ||
       (typeof window !== 'undefined' ? sessionStorage.getItem('dms_session_secret_' + userId) : null) ||
-      dmsApi.getToken() ||
-      `user_kdk_seed_${userId}`;
+      userSeed;
 
     const salt = 'dms_e2ee_salt_' + userId;
     const enc = new TextEncoder();
@@ -201,37 +209,29 @@ class E2eeCryptoService {
           const roundtripOk = decTest.byteLength === 4;
 
           if (roundtripOk) {
-            // Verify server has this exact public key
-            const serverKey = await dmsApi.fetchUserPublicKey(uid);
-            if (!serverKey) {
-              await this.syncPublicKeyToServer(uid, savedPub);
-              isLocalKeyValid = true;
-            } else {
-              try {
-                const serverPubJwk = JSON.parse(serverKey);
-                if (serverPubJwk.n === pubJwk.n) {
-                  isLocalKeyValid = true;
-                } else {
-                  console.warn(`Local public key out of sync with server for user ${uid}. Refreshing from server...`);
-                }
-              } catch {
-                isLocalKeyValid = false;
-              }
-            }
-          }
-
-          if (isLocalKeyValid) {
+            // Local key is verified functional! Never wipe working local identity keys.
             this.myPrivateKey = privKey;
             this.myPublicKey = pubKey;
             this.myPublicKeyJwk = savedPub;
             this.userPublicKeysCache.set(uid, pubKey);
+
+            // Verify server has this exact public key in background; update server if missing or desynced
+            dmsApi.fetchUserPublicKey(uid).then(async (serverKey) => {
+              if (!serverKey) {
+                await this.syncPublicKeyToServer(uid, savedPub);
+              } else {
+                try {
+                  const serverPubJwk = JSON.parse(serverKey);
+                  if (serverPubJwk.n !== pubJwk.n) {
+                    await this.syncPublicKeyToServer(uid, savedPub);
+                  }
+                } catch {
+                  await this.syncPublicKeyToServer(uid, savedPub);
+                }
+              }
+            }).catch(() => {});
+
             return;
-          } else {
-            // Clear stale/desynced local storage keys
-            if (typeof localStorage !== 'undefined') {
-              localStorage.removeItem(privKeyStorageKey);
-              localStorage.removeItem(pubKeyStorageKey);
-            }
           }
         } catch (err) {
           console.warn('Could not restore cached E2EE keys from localStorage:', err);
@@ -523,6 +523,32 @@ class E2eeCryptoService {
       return { key: cached, version };
     }
 
+    // Check localStorage cache for symmetric conversation key
+    const localKeyStorageKey = `e2ee_ck_${conversationId}_v${version}`;
+    if (typeof localStorage !== 'undefined') {
+      const savedRawBase64 = localStorage.getItem(localKeyStorageKey);
+      if (savedRawBase64) {
+        try {
+          const rawBuffer = base64ToArrayBuffer(savedRawBase64);
+          const importedKey = await subtle.importKey(
+            'raw',
+            rawBuffer,
+            { name: 'AES-GCM' },
+            true,
+            ['encrypt', 'decrypt']
+          );
+          this.conversationKeysCache.set(cacheKey, importedKey);
+          this.conversationKeyVersions.set(conversationId, version);
+          if (participantIds && participantIds.length > 0) {
+            this.ensureBundlesForParticipants(conversationId, version, importedKey, participantIds).catch(() => {});
+          }
+          return { key: importedKey, version };
+        } catch (e) {
+          console.warn('Failed to import cached conversation key from localStorage:', e);
+        }
+      }
+    }
+
     // Ensure our private key is loaded
     if (!this.myPrivateKey && this.currentUserId) {
       await this.initUser(this.currentUserId);
@@ -559,6 +585,12 @@ class E2eeCryptoService {
             this.conversationKeysCache.set(actualCacheKey, convKey);
             this.conversationKeyVersions.set(conversationId, actualVersion);
 
+            if (typeof localStorage !== 'undefined') {
+              try {
+                localStorage.setItem(`e2ee_ck_${conversationId}_v${actualVersion}`, arrayBufferToBase64(rawKeyBuffer));
+              } catch {}
+            }
+
             if (participantIds && participantIds.length > 0) {
               this.ensureBundlesForParticipants(conversationId, actualVersion, convKey, participantIds).catch(() => {});
             }
@@ -571,7 +603,7 @@ class E2eeCryptoService {
       }
     } catch {}
 
-    // 2. If no bundle exists, generate a new conversation key and distribute to participants
+    // 2. If no bundle exists, generate a new conversation key ONLY if participantIds are provided (i.e. sending/creating)
     if (participantIds.length > 0) {
       try {
         const convKey = await subtle.generateKey(
@@ -605,6 +637,12 @@ class E2eeCryptoService {
 
         if (bundles.length > 0) {
           await dmsApi.publishKeyBundle(conversationId, version, bundles);
+        }
+
+        if (typeof localStorage !== 'undefined') {
+          try {
+            localStorage.setItem(localKeyStorageKey, arrayBufferToBase64(rawKey));
+          } catch {}
         }
 
         this.conversationKeysCache.set(cacheKey, convKey);
@@ -657,6 +695,12 @@ class E2eeCryptoService {
     }
 
     await dmsApi.publishKeyBundle(conversationId, nextVersion, bundles);
+
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(`e2ee_ck_${conversationId}_v${nextVersion}`, arrayBufferToBase64(rawKey));
+      } catch {}
+    }
 
     const cacheKey = `${conversationId}:v${nextVersion}`;
     this.conversationKeysCache.set(cacheKey, newKey);

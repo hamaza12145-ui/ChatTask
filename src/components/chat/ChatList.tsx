@@ -33,6 +33,7 @@ export const ChatList: React.FC = () => {
     typingStatus,
     isLoadingDms,
     isInitialSyncDone,
+    messagesByChatId,
   } = useAppStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -413,7 +414,14 @@ export const ChatList: React.FC = () => {
                               );
                             })()}
                             <span className="truncate">
-                              {chat.lastMessage?.text || 'No messages yet'}
+                              {(() => {
+                                const chatMsgs = messagesByChatId[chat.id];
+                                const latestMsg = chatMsgs && chatMsgs.length > 0 ? chatMsgs[chatMsgs.length - 1] : null;
+                                if (latestMsg && latestMsg.isDecrypted && !latestMsg.text.startsWith('e2ee:') && !latestMsg.text.includes('🔒 [')) {
+                                  return latestMsg.text;
+                                }
+                                return chat.lastMessage?.text || 'No messages yet';
+                              })()}
                             </span>
                           </>
                         )}
