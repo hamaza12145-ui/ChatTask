@@ -1134,12 +1134,14 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     unsubs.push(
       chatSocket.on('receipt_update', (payload: any) => {
         if (!payload) return;
-        const { messageId, status, userId, timestamp } = payload;
+        const { conversationId, chatId, messageId, status, userId, timestamp } = payload;
+        const targetCid = conversationId || chatId;
 
         setMessagesByChatId((prev) => {
           let hasChange = false;
           const nextMap = { ...prev };
           for (const cid of Object.keys(nextMap)) {
+            if (targetCid && cid !== targetCid) continue;
             const list = nextMap[cid];
             let listChanged = false;
             const updatedList: ChatMessage[] = list.map((m) => {
@@ -1165,15 +1167,22 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           return hasChange ? nextMap : prev;
         });
 
-        // Update chats last message status
+        // Update chats last message status & read receipts
         setChats((prev) =>
           prev.map((c) => {
+            if (targetCid && c.id !== targetCid) return c;
             if (c.lastMessage && (status === 'read' || status === 'delivered')) {
+              const updatedReadBy = status === 'read'
+                ? { ...(c.lastMessage.readBy || {}), [userId]: timestamp }
+                : c.lastMessage.readBy;
+              const updatedDeliveredTo = { ...(c.lastMessage.deliveredTo || {}), [userId]: timestamp };
               return {
                 ...c,
                 lastMessage: {
                   ...c.lastMessage,
                   status: status as 'read' | 'delivered',
+                  readBy: updatedReadBy,
+                  deliveredTo: updatedDeliveredTo,
                 },
               };
             }
@@ -1197,14 +1206,40 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
               const isCurrentChat = activeChatIdRef.current === targetChatId;
               // If the user has this chat actively open on this screen, keep unread at 0
               const effectiveCount = isCurrentChat ? 0 : count;
+              const updatedUnread = {
+                ...(c.unreadCounts || {}),
+                ...(payload.unreadCounts || {}),
+                [targetUserId]: effectiveCount,
+                [String(targetUserId)]: effectiveCount,
+              };
+
+              // If other user in direct chat read their messages (unread count is 0),
+              // update lastMessage status to 'read' as well
+              const isOtherUserRead =
+                targetUserId &&
+                String(targetUserId) !== String(currentUserId) &&
+                effectiveCount === 0;
+
+              let updatedLastMessage = c.lastMessage;
+              if (
+                isOtherUserRead &&
+                c.lastMessage &&
+                String(c.lastMessage.senderId) === String(currentUserId)
+              ) {
+                updatedLastMessage = {
+                  ...c.lastMessage,
+                  status: 'read' as const,
+                  readBy: {
+                    ...(c.lastMessage.readBy || {}),
+                    [targetUserId]: new Date().toISOString(),
+                  },
+                };
+              }
+
               return {
                 ...c,
-                unreadCounts: {
-                  ...(c.unreadCounts || {}),
-                  ...(payload.unreadCounts || {}),
-                  [targetUserId]: effectiveCount,
-                  [String(targetUserId)]: effectiveCount,
-                },
+                lastMessage: updatedLastMessage,
+                unreadCounts: updatedUnread,
               };
             }
             return c;
@@ -1228,9 +1263,25 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
                   updatedUnread[String(currentUserId)] = 0;
                 }
               }
+
+              const incomingLastMsg = payload.lastMessage;
+              let preservedLastMessage = incomingLastMsg || c.lastMessage;
+              if (
+                c.lastMessage?.text &&
+                !c.lastMessage.text.includes('End-to-end encrypted') &&
+                !c.lastMessage.text.includes('🔒') &&
+                incomingLastMsg?.text &&
+                (incomingLastMsg.text.includes('End-to-end encrypted') || incomingLastMsg.text.includes('🔒'))
+              ) {
+                preservedLastMessage = {
+                  ...incomingLastMsg,
+                  text: c.lastMessage.text,
+                };
+              }
+
               return {
                 ...c,
-                lastMessage: payload.lastMessage || c.lastMessage,
+                lastMessage: preservedLastMessage,
                 unreadCounts: updatedUnread,
               };
             }

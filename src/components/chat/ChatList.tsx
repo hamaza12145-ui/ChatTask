@@ -395,19 +395,45 @@ export const ChatList: React.FC = () => {
                           )
                         ) : (
                           <>
-                            {chat.lastMessage && String(chat.lastMessage.senderId) === String(currentUser.id) && (() => {
+                            {(() => {
+                              const chatMsgs = messagesByChatId[chat.id];
+                              const latestMsg = chatMsgs && chatMsgs.length > 0 ? chatMsgs[chatMsgs.length - 1] : null;
+
+                              const lastSenderId = chat.lastMessage?.senderId ?? latestMsg?.senderId;
+                              const isOwn = lastSenderId !== undefined && String(lastSenderId) === String(currentUser.id);
+
+                              if (!isOwn) return null;
+
+                              const otherParticipants = (chat.participantIds || []).filter(
+                                (id) => String(id) !== String(currentUser.id)
+                              );
+
+                              // Authoritative read detection:
+                              // 1. Direct status is 'read' on lastMessage or latestMsg
+                              // 2. readBy map has entries from other users
+                              // 3. For direct chats, the other user has 0 unread messages in chat.unreadCounts
                               const isRead =
-                                chat.lastMessage.status === 'read' ||
+                                chat.lastMessage?.status === 'read' ||
+                                (latestMsg && latestMsg.status === 'read') ||
                                 Boolean(
-                                  chat.lastMessage.readBy &&
-                                  Object.keys(chat.lastMessage.readBy).some((uid) => String(uid) !== String(currentUser.id))
-                                );
+                                  (chat.lastMessage?.readBy &&
+                                    Object.keys(chat.lastMessage.readBy).some((uid) => String(uid) !== String(currentUser.id))) ||
+                                  (latestMsg?.readBy &&
+                                    Object.keys(latestMsg.readBy).some((uid) => String(uid) !== String(currentUser.id)))
+                                ) ||
+                                (chat.type === 'direct' &&
+                                  otherParticipants.length > 0 &&
+                                  otherParticipants.every((pid) => Number(chat.unreadCounts?.[pid] ?? 0) === 0));
+
                               const isDelivered =
                                 isRead ||
-                                chat.lastMessage.status === 'delivered' ||
+                                chat.lastMessage?.status === 'delivered' ||
+                                (latestMsg && latestMsg.status === 'delivered') ||
                                 Boolean(
-                                  chat.lastMessage.deliveredTo &&
-                                  Object.keys(chat.lastMessage.deliveredTo).some((uid) => String(uid) !== String(currentUser.id))
+                                  (chat.lastMessage?.deliveredTo &&
+                                    Object.keys(chat.lastMessage.deliveredTo).some((uid) => String(uid) !== String(currentUser.id))) ||
+                                  (latestMsg?.deliveredTo &&
+                                    Object.keys(latestMsg.deliveredTo).some((uid) => String(uid) !== String(currentUser.id)))
                                 );
 
                               return (
@@ -435,10 +461,39 @@ export const ChatList: React.FC = () => {
                               {(() => {
                                 const chatMsgs = messagesByChatId[chat.id];
                                 const latestMsg = chatMsgs && chatMsgs.length > 0 ? chatMsgs[chatMsgs.length - 1] : null;
-                                if (latestMsg && latestMsg.isDecrypted && !latestMsg.text.startsWith('e2ee:') && !latestMsg.text.includes('🔒 [')) {
+
+                                // 1. Use clean decrypted local message if available
+                                if (
+                                  latestMsg &&
+                                  latestMsg.isDecrypted &&
+                                  !latestMsg.text.startsWith('e2ee:') &&
+                                  !latestMsg.text.includes('End-to-end encrypted') &&
+                                  !latestMsg.text.includes('🔒')
+                                ) {
+                                  if (latestMsg.voiceDuration) return 'Voice message';
+                                  if (latestMsg.attachment) {
+                                    return latestMsg.attachment.type === 'image' ? 'Photo' : 'Attachment';
+                                  }
                                   return latestMsg.text;
                                 }
-                                return chat.lastMessage?.text || 'No messages yet';
+
+                                // 2. Fall back to conversation's lastMessage
+                                const rawText = chat.lastMessage?.text || '';
+
+                                // 3. Filter out any encryption label or lock from chat list previews only
+                                if (
+                                  rawText.includes('End-to-end encrypted') ||
+                                  rawText.includes('🔒') ||
+                                  rawText.startsWith('e2ee:')
+                                ) {
+                                  if (chat.lastMessage?.type === 'voice') return 'Voice message';
+                                  if (chat.lastMessage?.type === 'image') return 'Photo';
+                                  if (chat.lastMessage?.type === 'document') return 'Attachment';
+                                  if (chat.lastMessage?.type === 'task_card') return 'Task';
+                                  return '';
+                                }
+
+                                return rawText || 'No messages yet';
                               })()}
                             </span>
                           </>
