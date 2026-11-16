@@ -1716,20 +1716,38 @@ class DmsApiService {
           // Direct and group chats must have at least one successfully sent message
           return Boolean(c.lastMessage && (c.lastMessage.text || c.lastMessage.type));
         })
-        .map((c: any): Chat => ({
-          id: c.id,
-          name: c.name,
-          type: c.type || 'group',
-          avatarBg: c.avatarBg || 'bg-slate-700',
-          participantIds: (c.participantIds || []).map(String),
-          adminIds: (c.adminIds || []).map(String),
-          department: c.department || undefined,
-          linkedTaskId: c.linkedTaskId || undefined,
-          isPinned: Boolean(c.isPinned),
-          description: c.description || undefined,
-          lastMessage: c.lastMessage || undefined,
-          unreadCounts: c.unreadCounts || {},
-        }));
+        .map((c: any): Chat => {
+          let lastMsg = c.lastMessage || undefined;
+          if (lastMsg && lastMsg.text && /encrypted|e2ee:|🔒|🔐/i.test(lastMsg.text)) {
+            lastMsg = {
+              ...lastMsg,
+              text:
+                lastMsg.type === 'voice'
+                  ? 'Voice message'
+                  : lastMsg.type === 'image'
+                  ? 'Photo'
+                  : lastMsg.type === 'document'
+                  ? 'Attachment'
+                  : lastMsg.type === 'task_card'
+                  ? 'Task'
+                  : '',
+            };
+          }
+          return {
+            id: c.id,
+            name: c.name,
+            type: c.type || 'group',
+            avatarBg: c.avatarBg || 'bg-slate-700',
+            participantIds: (c.participantIds || []).map(String),
+            adminIds: (c.adminIds || []).map(String),
+            department: c.department || undefined,
+            linkedTaskId: c.linkedTaskId || undefined,
+            isPinned: Boolean(c.isPinned),
+            description: c.description || undefined,
+            lastMessage: lastMsg,
+            unreadCounts: c.unreadCounts || {},
+          };
+        });
     } catch (err: any) {
       console.warn('Failed to fetch conversations:', err?.message);
       return [];

@@ -459,6 +459,7 @@ export const ChatList: React.FC = () => {
                             })()}
                             <span className="truncate">
                               {(() => {
+                                const isEncryptedNotice = (str: string) => !str || /encrypted|e2ee:|🔒|🔐/i.test(str);
                                 const chatMsgs = messagesByChatId[chat.id];
                                 const latestMsg = chatMsgs && chatMsgs.length > 0 ? chatMsgs[chatMsgs.length - 1] : null;
 
@@ -466,9 +467,8 @@ export const ChatList: React.FC = () => {
                                 if (
                                   latestMsg &&
                                   latestMsg.isDecrypted &&
-                                  !latestMsg.text.startsWith('e2ee:') &&
-                                  !latestMsg.text.includes('End-to-end encrypted') &&
-                                  !latestMsg.text.includes('🔒')
+                                  latestMsg.text &&
+                                  !isEncryptedNotice(latestMsg.text)
                                 ) {
                                   if (latestMsg.voiceDuration) return 'Voice message';
                                   if (latestMsg.attachment) {
@@ -481,11 +481,7 @@ export const ChatList: React.FC = () => {
                                 const rawText = chat.lastMessage?.text || '';
 
                                 // 3. Filter out any encryption label or lock from chat list previews only
-                                if (
-                                  rawText.includes('End-to-end encrypted') ||
-                                  rawText.includes('🔒') ||
-                                  rawText.startsWith('e2ee:')
-                                ) {
+                                if (isEncryptedNotice(rawText)) {
                                   if (chat.lastMessage?.type === 'voice') return 'Voice message';
                                   if (chat.lastMessage?.type === 'image') return 'Photo';
                                   if (chat.lastMessage?.type === 'document') return 'Attachment';

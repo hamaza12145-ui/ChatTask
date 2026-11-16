@@ -334,7 +334,29 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       if (cached && cachedUid === currentUserId) {
         try {
           const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed.map((c) => {
+              if (c.lastMessage?.text && /encrypted|e2ee:|🔒|🔐/i.test(c.lastMessage.text)) {
+                return {
+                  ...c,
+                  lastMessage: {
+                    ...c.lastMessage,
+                    text:
+                      c.lastMessage.type === 'voice'
+                        ? 'Voice message'
+                        : c.lastMessage.type === 'image'
+                        ? 'Photo'
+                        : c.lastMessage.type === 'document'
+                        ? 'Attachment'
+                        : c.lastMessage.type === 'task_card'
+                        ? 'Task'
+                        : '',
+                  },
+                };
+              }
+              return c;
+            });
+          }
         } catch {}
       }
     }
