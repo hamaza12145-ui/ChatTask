@@ -1644,7 +1644,6 @@ export const TaskFormModal: React.FC = () => {
                 <Paperclip className="task-pending-attachments__dropzone-icon" />
                 <span>
                   Drop files or <span className="task-pending-attachments__browse-link">browse</span>
-                  <span className="task-pending-attachments__meta"> • up to 10 MB each</span>
                 </span>
               </label>
 
