@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from 'react';
 import {
   User,
+  UserStatus,
   Chat,
   ChatMessage,
   Task,
@@ -19,6 +20,7 @@ import {
 import { dmsApi, getDepartmentMeta, DepartmentMeta } from '../services/dmsApi';
 import { e2eeCrypto } from '../services/e2eeCrypto';
 import { chatSocket } from '../services/chatSocket';
+import { useInactivityTimeout, INACTIVITY_TIMEOUT_MS, LAST_ACTIVITY_KEY } from '../hooks/useInactivityTimeout';
 
 interface Toast {
   id: string;
@@ -261,7 +263,22 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   // Authentication & session state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
-      return Boolean(localStorage.getItem('dms_token'));
+      const token = localStorage.getItem('dms_token');
+      if (!token) return false;
+      const lastActivity = localStorage.getItem(LAST_ACTIVITY_KEY);
+      if (lastActivity) {
+        const parsed = parseInt(lastActivity, 10);
+        if (!isNaN(parsed) && parsed > 0 && Date.now() - parsed >= INACTIVITY_TIMEOUT_MS) {
+          // Stale session: 15+ minutes of inactivity occurred while closed
+          localStorage.removeItem('dms_token');
+          localStorage.removeItem('dms_user_email');
+          localStorage.removeItem('dmstask_persisted_user_id');
+          localStorage.removeItem('dmstask_is_authenticated');
+          localStorage.removeItem(LAST_ACTIVITY_KEY);
+          return false;
+        }
+      }
+      return true;
     }
     return false;
   });
@@ -1540,6 +1557,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         if (typeof window !== 'undefined') {
           localStorage.setItem('dmstask_persisted_user_id', uid);
           localStorage.setItem('dmstask_is_authenticated', 'true');
+          localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
         }
         e2eeCrypto.clearSession();
         if (e2eeCrypto.isSupported()) {
@@ -1580,10 +1598,64 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         localStorage.removeItem('dmstask_persisted_messages');
         localStorage.removeItem('dmstask_persisted_chats');
         localStorage.removeItem('dmstask_is_authenticated');
+        localStorage.removeItem(LAST_ACTIVITY_KEY);
       }
       addToast('Signed out of account.', 'info');
     }
   }, [addToast]);
+
+  // Automatic inactivity timeout handler (triggered after 15 consecutive minutes of no manual user interaction)
+  const handleInactivityTimeout = useCallback(async () => {
+    console.warn('[Inactivity] 15 consecutive minutes of inactivity detected. Expiring session and redirecting to login...');
+    try {
+      // 1. Mark presence as offline locally
+      if (currentUserId) {
+        setOnlineUserIds((prev) => {
+          const next = new Set(prev);
+          next.delete(String(currentUserId));
+          return next;
+        });
+        setLastSeenMap((prev) => ({
+          ...prev,
+          [String(currentUserId)]: new Date().toISOString(),
+        }));
+      }
+
+      // 2. Disconnect Socket.IO (notifies backend handleDisconnect and broadcasts user_presence: offline)
+      chatSocket.disconnect();
+
+      // 3. Clear client-side cryptographic keys and memory
+      e2eeCrypto.clearSession();
+
+      // 4. Securely invalidate authentication token and refresh session on server
+      await dmsApi.logout().catch(() => {});
+    } finally {
+      // 5. Expire session state, clean storage, and redirect to login page
+      setIsAuthenticated(false);
+      setLocalCurrentUserId('');
+      setMessages([]);
+      setChats([]);
+
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('dms_token');
+        localStorage.removeItem('dms_user_email');
+        localStorage.removeItem('dmstask_persisted_user_id');
+        localStorage.removeItem('dmstask_persisted_messages');
+        localStorage.removeItem('dmstask_persisted_chats');
+        localStorage.removeItem('dmstask_is_authenticated');
+        localStorage.removeItem(LAST_ACTIVITY_KEY);
+      }
+
+      addToast('Session expired due to 15 minutes of inactivity. Please sign in again.', 'warning');
+    }
+  }, [currentUserId, addToast]);
+
+  // Active inactivity timeout monitor: reset ONLY on genuine manual user interaction
+  useInactivityTimeout({
+    isAuthenticated,
+    onTimeout: handleInactivityTimeout,
+    timeoutMs: INACTIVITY_TIMEOUT_MS,
+  });
 
   // Switch persona & authenticate as selected DMS user
   const setCurrentUserId = useCallback(
@@ -1594,6 +1666,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
       if (typeof window !== 'undefined') {
         localStorage.setItem('dmstask_persisted_user_id', uid);
+        localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
       }
 
       const targetUser = users.find((u) => String(u.id) === uid);

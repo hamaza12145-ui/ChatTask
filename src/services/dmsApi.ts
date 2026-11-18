@@ -800,6 +800,7 @@ class DmsApiService {
         localStorage.removeItem('dms_user_email');
         localStorage.removeItem('dmstask_persisted_user_id');
         localStorage.removeItem('dmstask_is_authenticated');
+        localStorage.removeItem('dmstask_last_activity_timestamp');
       }
     }
   }
